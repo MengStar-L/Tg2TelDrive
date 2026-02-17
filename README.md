@@ -20,8 +20,9 @@ git clone https://github.com/MengStar-L/Tg2TelDrive.git /opt/Tg2TelDrive
 ### 2. 创建虚拟环境并安装依赖
 
 ```bash
-python3 -m venv /opt/myenv
-source /opt/myenv/bin/activate
+cd /opt/Tg2TelDrive
+python3 -m venv venv
+source venv/bin/activate
 pip install telethon requests qrcode
 ```
 
@@ -61,6 +62,7 @@ max_scan_messages = 10000          # 启动时扫描历史消息上限
 ### 4. 首次运行（扫码登录）
 
 ```bash
+source /opt/Tg2TelDrive/venv/bin/activate
 cd /opt/Tg2TelDrive
 python main.py
 ```
