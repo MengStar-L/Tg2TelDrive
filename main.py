@@ -298,33 +298,63 @@ async def sync_deletions(client: TelegramClient):
 
         curr_files = get_teldrive_files()
         curr_ids = set(curr_files.keys())
-        deleted_ids = prev_ids - curr_ids
+        disappeared_ids = prev_ids - curr_ids
         new_ids = curr_ids - prev_ids
 
         print(f"🔄 同步检查: 上次 {len(prev_ids)} 个 → 本次 {len(curr_ids)} 个"
-              f" | 新增 {len(new_ids)} | 删除 {len(deleted_ids)}")
+              f" | 新增 {len(new_ids)} | 消失 {len(disappeared_ids)}")
 
-        if deleted_ids:
+        if disappeared_ids:
             mapping = _load_mapping()
-            msg_ids_to_delete: list[int] = []
-            for fid in deleted_ids:
-                msg_ids_to_delete.extend(mapping.get(fid, []))
+            curr_names = set(curr_files.values())
 
-            if msg_ids_to_delete:
-                print(f"🗑️ 删除 {len(deleted_ids)} 个文件 → "
-                      f"清理 {len(msg_ids_to_delete)} 条频道消息")
-                try:
-                    await client.delete_messages(CHANNEL_ID, msg_ids_to_delete)
-                    print(f"  ✅ 已删除 {len(msg_ids_to_delete)} 条频道消息")
-                except Exception as e:
-                    print(f"  ❌ 删除频道消息失败: {e}")
-            else:
-                print(f"🗑️ 删除 {len(deleted_ids)} 个文件, 但无对应映射记录")
+            truly_deleted_ids: list[str] = []
+            moved_ids: list[str] = []
 
-            # 清理映射中已删除的条目
-            for fid in deleted_ids:
-                mapping.pop(fid, None)
-            _save_mapping(mapping)
+            for fid in disappeared_ids:
+                old_name = prev_files.get(fid, "")
+                if old_name and old_name in curr_names:
+                    # 文件名仍在 TelDrive 中，只是 ID 变了（移动/重建）
+                    moved_ids.append(fid)
+                else:
+                    # 文件名也不存在了，真正被删除
+                    truly_deleted_ids.append(fid)
+
+            # 处理移动的文件: 更新映射（旧 ID → 新 ID）
+            if moved_ids:
+                print(f"📂 {len(moved_ids)} 个文件仅移动/重建, 跳过删除, 更新映射")
+                # 新 ID 中按文件名反查
+                new_name_to_id = {name: fid for fid, name in curr_files.items()
+                                  if fid in new_ids}
+                for old_fid in moved_ids:
+                    old_name = prev_files.get(old_fid, "")
+                    old_msgs = mapping.pop(old_fid, [])
+                    if old_name in new_name_to_id:
+                        new_fid = new_name_to_id[old_name]
+                        mapping[new_fid] = old_msgs
+                        print(f"  🔄 映射迁移: {old_name}")
+                _save_mapping(mapping)
+
+            # 处理真正删除的文件: 清理 Telegram 消息
+            if truly_deleted_ids:
+                msg_ids_to_delete: list[int] = []
+                for fid in truly_deleted_ids:
+                    msg_ids_to_delete.extend(mapping.get(fid, []))
+
+                if msg_ids_to_delete:
+                    print(f"🗑️ 删除 {len(truly_deleted_ids)} 个文件 → "
+                          f"清理 {len(msg_ids_to_delete)} 条频道消息")
+                    try:
+                        await client.delete_messages(CHANNEL_ID, msg_ids_to_delete)
+                        print(f"  ✅ 已删除 {len(msg_ids_to_delete)} 条频道消息")
+                    except Exception as e:
+                        print(f"  ❌ 删除频道消息失败: {e}")
+                else:
+                    print(f"🗑️ 删除 {len(truly_deleted_ids)} 个文件, 但无对应映射记录")
+
+                for fid in truly_deleted_ids:
+                    mapping.pop(fid, None)
+                _save_mapping(mapping)
 
         # 新增的文件同步到映射 (由其他来源上传的)
         if new_ids:
