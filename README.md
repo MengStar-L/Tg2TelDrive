@@ -71,25 +71,10 @@ python main.py
 
 ### 5. 注册为系统服务（开机自启）
 
-创建服务文件：
+复制项目中的服务文件：
 
 ```bash
-cat > /etc/systemd/system/tg2teldrive.service << 'EOF'
-[Unit]
-Description=Tg2TelDrive Sync Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/Tg2TelDrive
-ExecStart=/opt/myenv/bin/python /opt/Tg2TelDrive/main.py
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
+cp /opt/Tg2TelDrive/tg2teldrive.service /etc/systemd/system/
 ```
 
 启用并启动服务：
