@@ -38,6 +38,7 @@ TELDRIVE_CHANNEL_ID = _cfg["teldrive"]["channel_id"]
 SYNC_INTERVAL = _cfg["teldrive"].get("sync_interval", 60)
 SYNC_ENABLED = _cfg["teldrive"].get("sync_enabled", True)
 MAX_SCAN_MESSAGES = _cfg["teldrive"].get("max_scan_messages", 10000)
+CONFIRM_CYCLES = _cfg["teldrive"].get("confirm_cycles", 3)
 
 # 本地映射文件: {file_id: [message_id, ...]}
 _MAPPING_PATH = Path(__file__).parent / "file_msg_map.json"
@@ -288,75 +289,96 @@ async def sync_deletions(client: TelegramClient):
     """定时对比 TelDrive 文件快照，删除频道中已被 TelDrive 移除的文件消息。"""
     print(f"🔄 删除同步已启动 (每 {SYNC_INTERVAL} 秒检查一次)")
 
-    # 首次获取快照 (使用 file_id 集合)
+    # CONFIRM_CYCLES 从配置文件读取，默认 3
+
     prev_files = get_teldrive_files()
     prev_ids = set(prev_files.keys())
     print(f"   初始快照: {len(prev_ids)} 个文件")
+
+    # 待确认删除: {file_id: {"name": str, "msg_ids": list, "count": int}}
+    pending_deletions: dict[str, dict] = {}
 
     while True:
         await asyncio.sleep(SYNC_INTERVAL)
 
         curr_files = get_teldrive_files()
         curr_ids = set(curr_files.keys())
+        curr_names = set(curr_files.values())
         disappeared_ids = prev_ids - curr_ids
         new_ids = curr_ids - prev_ids
 
         print(f"🔄 同步检查: 上次 {len(prev_ids)} 个 → 本次 {len(curr_ids)} 个"
               f" | 新增 {len(new_ids)} | 消失 {len(disappeared_ids)}")
 
+        mapping = _load_mapping()
+
+        # --- 处理本次消失的文件 ---
         if disappeared_ids:
-            mapping = _load_mapping()
-            curr_names = set(curr_files.values())
-
-            truly_deleted_ids: list[str] = []
-            moved_ids: list[str] = []
-
             for fid in disappeared_ids:
                 old_name = prev_files.get(fid, "")
                 if old_name and old_name in curr_names:
-                    # 文件名仍在 TelDrive 中，只是 ID 变了（移动/重建）
-                    moved_ids.append(fid)
-                else:
-                    # 文件名也不存在了，真正被删除
-                    truly_deleted_ids.append(fid)
-
-            # 处理移动的文件: 更新映射（旧 ID → 新 ID）
-            if moved_ids:
-                print(f"📂 {len(moved_ids)} 个文件仅移动/重建, 跳过删除, 更新映射")
-                # 新 ID 中按文件名反查
-                new_name_to_id = {name: fid for fid, name in curr_files.items()
-                                  if fid in new_ids}
-                for old_fid in moved_ids:
-                    old_name = prev_files.get(old_fid, "")
-                    old_msgs = mapping.pop(old_fid, [])
+                    # 文件名仍在，只是 ID 变了（移动/重建）→ 立即迁移映射
+                    new_name_to_id = {name: nid for nid, name in curr_files.items()
+                                      if nid in new_ids}
+                    old_msgs = mapping.pop(fid, [])
                     if old_name in new_name_to_id:
                         new_fid = new_name_to_id[old_name]
                         mapping[new_fid] = old_msgs
-                        print(f"  🔄 映射迁移: {old_name}")
+                        print(f"  � 映射迁移: {old_name}")
+                    _save_mapping(mapping)
+                elif fid not in pending_deletions:
+                    # 文件名也不在了 → 加入待确认队列
+                    pending_deletions[fid] = {
+                        "name": old_name,
+                        "msg_ids": mapping.get(fid, []),
+                        "count": 1,
+                    }
+                    print(f"  ⏳ 文件 {old_name} 消失，等待确认 (1/{CONFIRM_CYCLES})")
+
+        # --- 检查待确认队列 ---
+        confirmed_fids: list[str] = []
+        for fid, info in list(pending_deletions.items()):
+            name = info["name"]
+            # 文件名重新出现了（移动完成） → 取消删除
+            if name in curr_names:
+                print(f"  ✅ 文件 {name} 已重新出现，取消删除")
+                # 迁移映射到新 ID
+                for nid, nname in curr_files.items():
+                    if nname == name and nid not in mapping:
+                        mapping[nid] = info["msg_ids"]
+                        print(f"  🔄 映射迁移: {name}")
+                        break
+                del pending_deletions[fid]
+                mapping.pop(fid, None)
                 _save_mapping(mapping)
+                continue
 
-            # 处理真正删除的文件: 清理 Telegram 消息
-            if truly_deleted_ids:
-                msg_ids_to_delete: list[int] = []
-                for fid in truly_deleted_ids:
-                    msg_ids_to_delete.extend(mapping.get(fid, []))
+            # 文件仍然不存在 → 增加计数
+            info["count"] += 1
+            if info["count"] >= CONFIRM_CYCLES:
+                confirmed_fids.append(fid)
+            else:
+                print(f"  ⏳ 文件 {name} 持续消失 ({info['count']}/{CONFIRM_CYCLES})")
 
-                if msg_ids_to_delete:
-                    print(f"🗑️ 删除 {len(truly_deleted_ids)} 个文件 → "
-                          f"清理 {len(msg_ids_to_delete)} 条频道消息")
-                    try:
-                        await client.delete_messages(CHANNEL_ID, msg_ids_to_delete)
-                        print(f"  ✅ 已删除 {len(msg_ids_to_delete)} 条频道消息")
-                    except Exception as e:
-                        print(f"  ❌ 删除频道消息失败: {e}")
-                else:
-                    print(f"🗑️ 删除 {len(truly_deleted_ids)} 个文件, 但无对应映射记录")
+        # --- 执行确认删除 ---
+        if confirmed_fids:
+            msg_ids_to_delete: list[int] = []
+            for fid in confirmed_fids:
+                info = pending_deletions.pop(fid)
+                msg_ids_to_delete.extend(info["msg_ids"])
+                mapping.pop(fid, None)
 
-                for fid in truly_deleted_ids:
-                    mapping.pop(fid, None)
-                _save_mapping(mapping)
+            if msg_ids_to_delete:
+                print(f"🗑️ 确认删除 {len(confirmed_fids)} 个文件 → "
+                      f"清理 {len(msg_ids_to_delete)} 条频道消息")
+                try:
+                    await client.delete_messages(CHANNEL_ID, msg_ids_to_delete)
+                    print(f"  ✅ 已删除 {len(msg_ids_to_delete)} 条频道消息")
+                except Exception as e:
+                    print(f"  ❌ 删除频道消息失败: {e}")
+            _save_mapping(mapping)
 
-        # 新增的文件同步到映射 (由其他来源上传的)
+        # 新增的文件同步到映射
         if new_ids:
             unmapped = [fid for fid in new_ids if fid not in _load_mapping()]
             if unmapped:
@@ -472,11 +494,18 @@ async def main():
         size = file_info["size"]
         print(f"\n📁 检测到新文件: {name} ({size:,} bytes)")
 
-        # 检查 TelDrive 中是否已有同名文件
+        # 获取本地映射和 TelDrive 文件列表
+        mapping = _load_mapping()
         td_files = get_teldrive_files()
-        existing_names = set(td_files.values())
-        if name in existing_names:
-            print(f"  ⚠️ 文件 {name} 已存在于 TelDrive，自动删除频道消息 (msg_id={msg.id})")
+
+        # 1. 本地映射中已有同名文件 → 频道重复消息 → 删除
+        mapped_names = set()
+        for fid, msg_ids in mapping.items():
+            fname = td_files.get(fid, "")
+            if fname:
+                mapped_names.add(fname)
+        if name in mapped_names:
+            print(f"  ⚠️ 文件 {name} 已由本程序处理过，自动删除重复消息 (msg_id={msg.id})")
             try:
                 await client.delete_messages(CHANNEL_ID, [msg.id])
                 print(f"  🗑️ 已删除重复消息 (msg_id={msg.id})")
@@ -484,6 +513,16 @@ async def main():
                 print(f"  ❌ 删除重复消息失败: {e}")
             return
 
+        # 2. TelDrive 中已有同名文件但未在本地映射 → TelDrive 已自动导入 → 不添加，仅记录映射
+        existing_name_to_fid = {fname: fid for fid, fname in td_files.items()}
+        if name in existing_name_to_fid:
+            fid = existing_name_to_fid[name]
+            mapping[fid] = [msg.id]
+            _save_mapping(mapping)
+            print(f"  📋 文件 {name} 已存在于 TelDrive (非本程序添加)，仅记录映射")
+            return
+
+        # 3. 全新文件 → 添加到 TelDrive
         ok = add_file_to_teldrive(
             file_name=name,
             file_size=size,

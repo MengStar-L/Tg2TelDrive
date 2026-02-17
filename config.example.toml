@@ -29,3 +29,6 @@ sync_enabled = true
 
 # 启动时扫描频道历史消息的最大数量
 max_scan_messages = 10000
+
+# 文件消失后确认删除的检查周期数 (防止移动操作误删)
+confirm_cycles = 3
