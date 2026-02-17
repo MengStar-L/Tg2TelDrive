@@ -54,6 +54,7 @@ channel_id = xxxxxxxxxx            # 不带 -100 前缀
 sync_interval = 10                 # 删除同步轮询间隔 (秒)
 sync_enabled = true                # 是否开启删除同步
 max_scan_messages = 10000          # 启动时扫描历史消息上限
+confirm_cycles = 3                 # 文件消失后确认删除的检查周期数
 ```
 
 > **api_id / api_hash 获取方式**：前往 [my.telegram.org](https://my.telegram.org) → API development tools
