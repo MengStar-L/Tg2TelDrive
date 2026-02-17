@@ -21,9 +21,6 @@ bearer_token = "your_bearer_token_here"
 # TelDrive API 注册文件用的频道 ID (不带 -100 前缀)
 channel_id = xxxxxxxxxx
 
-# TelDrive 存放路径
-target_path = "/"
-
 # 删除同步轮询间隔 (秒)
 sync_interval = 10
 

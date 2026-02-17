@@ -35,7 +35,6 @@ SESSION_NAME = _cfg["telegram"]["session_name"]
 TELDRIVE_URL = _cfg["teldrive"]["url"]
 BEARER_TOKEN = _cfg["teldrive"]["bearer_token"]
 TELDRIVE_CHANNEL_ID = _cfg["teldrive"]["channel_id"]
-TARGET_PATH = _cfg["teldrive"]["target_path"]
 SYNC_INTERVAL = _cfg["teldrive"].get("sync_interval", 60)
 SYNC_ENABLED = _cfg["teldrive"].get("sync_enabled", True)
 MAX_SCAN_MESSAGES = _cfg["teldrive"].get("max_scan_messages", 10000)
@@ -78,7 +77,7 @@ def add_file_to_teldrive(
     payload = {
         "name": file_name,
         "type": "file",
-        "path": TARGET_PATH,
+        "path": "/",
         "mimeType": mime_type,
         "size": file_size,
         "channelId": channel_id,
@@ -164,20 +163,19 @@ def extract_file_info(msg) -> dict | None:
     return None
 
 
-def get_teldrive_files() -> dict[str, str]:
-    """从 TelDrive API 获取当前所有文件。返回 {file_id: file_name}。"""
+def _list_teldrive_dir(path: str) -> list[dict]:
+    """列出 TelDrive 指定目录下的所有条目（单层），返回 item 列表。"""
     headers = {"Authorization": f"Bearer {BEARER_TOKEN}"}
-    result: dict[str, str] = {}
+    items: list[dict] = []
     page = 1
 
     while True:
         params = {
-            "path": TARGET_PATH,
+            "path": path,
             "op": "list",
             "perPage": 500,
             "page": page,
         }
-
         try:
             resp = requests.get(
                 f"{TELDRIVE_URL}/api/files", headers=headers, params=params
@@ -185,20 +183,40 @@ def get_teldrive_files() -> dict[str, str]:
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"  ⚠️ 获取 TelDrive 文件列表失败: {e}")
-            return result
+            print(f"  ⚠️ 获取 TelDrive 目录 {path} 失败: {e}")
+            return items
 
-        for item in data.get("items", []):
-            file_id = item.get("id", "")
-            file_name = item.get("name", "")
-            if file_id:
-                result[file_id] = file_name
+        items.extend(data.get("items", []))
 
         meta = data.get("meta", {})
         total_pages = meta.get("totalPages", 1)
         if page >= total_pages:
             break
         page += 1
+
+    return items
+
+
+def get_teldrive_files() -> dict[str, str]:
+    """从 TelDrive 根目录递归获取所有文件。返回 {file_id: file_name}。"""
+    result: dict[str, str] = {}
+    dirs_to_scan = ["/"]
+
+    while dirs_to_scan:
+        current_path = dirs_to_scan.pop()
+        items = _list_teldrive_dir(current_path)
+
+        for item in items:
+            item_type = item.get("type", "")
+            item_id = item.get("id", "")
+            item_name = item.get("name", "")
+
+            if item_type == "folder":
+                # 拼接子目录路径，继续递归
+                sub_path = current_path.rstrip("/") + "/" + item_name
+                dirs_to_scan.append(sub_path)
+            elif item_id:
+                result[item_id] = item_name
 
     return result
 

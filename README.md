@@ -51,7 +51,6 @@ session_name = "tel2teldrive_session"
 url = "http://your-teldrive-host:7888"
 bearer_token = "your_bearer_token_here"
 channel_id = xxxxxxxxxx            # 不带 -100 前缀
-target_path = "/"
 sync_interval = 10                 # 删除同步轮询间隔 (秒)
 sync_enabled = true                # 是否开启删除同步
 max_scan_messages = 10000          # 启动时扫描历史消息上限
