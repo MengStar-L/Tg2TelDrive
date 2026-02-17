@@ -1,0 +1,14 @@
+# Session files
+*.session
+*.session-journal
+
+# Config with secrets
+config.toml
+
+# Mapping data
+file_msg_map.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
