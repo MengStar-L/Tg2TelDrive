@@ -1,0 +1,34 @@
+# ================= Tel2TelDrive 配置文件 =================
+
+[telegram]
+# Telethon 登录凭据 (从 https://my.telegram.org 获取)
+api_id = 12345678
+api_hash = "your_api_hash_here"
+
+# Telegram 频道 ID (Telethon 监听消息用)
+channel_id = -100xxxxxxxxxx
+
+# Telethon session 文件名
+session_name = "tel2teldrive_session"
+
+[teldrive]
+# TelDrive 后端地址
+url = "http://your-teldrive-host:7888"
+
+# TelDrive Bearer Token
+bearer_token = "your_bearer_token_here"
+
+# TelDrive API 注册文件用的频道 ID (不带 -100 前缀)
+channel_id = xxxxxxxxxx
+
+# TelDrive 存放路径
+target_path = "/"
+
+# 删除同步轮询间隔 (秒)
+sync_interval = 10
+
+# 是否开启定时删除同步 (true/false)
+sync_enabled = true
+
+# 启动时扫描频道历史消息的最大数量
+max_scan_messages = 10000
