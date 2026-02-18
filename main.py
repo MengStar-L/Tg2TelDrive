@@ -1,4 +1,5 @@
 import asyncio
+import re
 import base64
 import json
 import mimetypes
@@ -61,6 +62,39 @@ def _save_mapping(mapping: dict[str, list[int]]):
         json.dumps(mapping, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _is_chunk_file(name: str) -> bool:
+    """判断文件名是否为分片文件（以 .1, .2, .3 ... 结尾）。"""
+    return bool(re.search(r'\.\d+$', name))
+
+
+def _get_base_name(name: str) -> str:
+    """获取分片文件对应的原始文件名。如 'movie.mp4.1' -> 'movie.mp4'"""
+    return re.sub(r'\.\d+$', '', name)
+
+
+async def _find_chunk_messages(
+    client: TelegramClient,
+    base_names: list[str],
+) -> list[int]:
+    """扫描频道消息，查找属于指定文件名的分片消息。"""
+    chunk_ids: list[int] = []
+    base_set = set(base_names)
+
+    async for msg in client.iter_messages(CHANNEL_ID, limit=MAX_SCAN_MESSAGES):
+        try:
+            file_info = extract_file_info(msg)
+        except Exception:
+            continue
+        if file_info is None:
+            continue
+        name = file_info["name"]
+        if _is_chunk_file(name) and _get_base_name(name) in base_set:
+            chunk_ids.append(msg.id)
+            print(f"    🔗 找到分片: {name} (msg_id={msg.id})")
+
+    return chunk_ids
 
 
 def add_file_to_teldrive(
@@ -363,10 +397,19 @@ async def sync_deletions(client: TelegramClient):
         # --- 执行确认删除 ---
         if confirmed_fids:
             msg_ids_to_delete: list[int] = []
+            base_names_to_delete: list[str] = []
             for fid in confirmed_fids:
                 info = pending_deletions.pop(fid)
                 msg_ids_to_delete.extend(info["msg_ids"])
+                base_names_to_delete.append(info["name"])
                 mapping.pop(fid, None)
+
+            # 扫描频道消息，查找并收集分片文件的 message_id
+            if base_names_to_delete:
+                chunk_msg_ids = await _find_chunk_messages(client, base_names_to_delete)
+                if chunk_msg_ids:
+                    print(f"  📎 找到 {len(chunk_msg_ids)} 条分片消息，一并删除")
+                    msg_ids_to_delete.extend(chunk_msg_ids)
 
             if msg_ids_to_delete:
                 print(f"🗑️ 确认删除 {len(confirmed_fids)} 个文件 → "
@@ -493,6 +536,12 @@ async def main():
         name = file_info["name"]
         size = file_info["size"]
         print(f"\n📁 检测到新文件: {name} ({size:,} bytes)")
+
+        # 0. 分片文件 → 跳过，不添加到 TelDrive
+        if _is_chunk_file(name):
+            base_name = _get_base_name(name)
+            print(f"  📎 分片文件 {name}，属于 {base_name}，跳过添加")
+            return
 
         # 获取本地映射和 TelDrive 文件列表
         mapping = _load_mapping()
