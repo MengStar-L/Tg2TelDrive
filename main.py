@@ -6,6 +6,7 @@ import mimetypes
 import tomllib
 from pathlib import Path
 
+import psycopg2
 import qrcode
 import requests
 from telethon import TelegramClient, events
@@ -41,6 +42,14 @@ SYNC_ENABLED = _cfg["teldrive"].get("sync_enabled", True)
 MAX_SCAN_MESSAGES = _cfg["teldrive"].get("max_scan_messages", 10000)
 CONFIRM_CYCLES = _cfg["teldrive"].get("confirm_cycles", 3)
 
+# TelDrive PostgreSQL 数据库连接配置
+DB_HOST = _cfg["teldrive"].get("db_host", "")
+DB_PORT = _cfg["teldrive"].get("db_port", 5432)
+DB_USER = _cfg["teldrive"].get("db_user", "")
+DB_PASSWORD = _cfg["teldrive"].get("db_password", "")
+DB_NAME = _cfg["teldrive"].get("db_name", "postgres")
+DB_ENABLED = bool(DB_HOST)  # 有数据库配置才启用
+
 # 本地映射文件: {file_id: [message_id, ...]}
 _MAPPING_PATH = Path(__file__).parent / "file_msg_map.json"
 # ============================================
@@ -72,6 +81,11 @@ def _is_chunk_file(name: str) -> bool:
 def _get_base_name(name: str) -> str:
     """获取分片文件对应的原始文件名。如 'movie.mp4.1' -> 'movie.mp4'"""
     return re.sub(r'\.\d+$', '', name)
+
+
+def _is_md5_name(name: str) -> bool:
+    """判断文件名是否为 MD5 格式（TelDrive Random Chunking 产生的 32 位十六进制，无扩展名）。"""
+    return bool(re.fullmatch(r'[0-9a-f]{32}', name))
 
 
 async def _find_chunk_messages(
@@ -232,9 +246,9 @@ def _list_teldrive_dir(path: str) -> list[dict]:
     return items
 
 
-def get_teldrive_files() -> dict[str, str]:
-    """从 TelDrive 根目录递归获取所有文件。返回 {file_id: file_name}。"""
-    result: dict[str, str] = {}
+def get_teldrive_files() -> dict[str, dict]:
+    """从 TelDrive 根目录递归获取所有文件。返回 {file_id: {"name": str, "size": int}}。"""
+    result: dict[str, dict] = {}
     dirs_to_scan = ["/"]
 
     while dirs_to_scan:
@@ -245,22 +259,92 @@ def get_teldrive_files() -> dict[str, str]:
             item_type = item.get("type", "")
             item_id = item.get("id", "")
             item_name = item.get("name", "")
+            item_size = item.get("size", 0)
 
             if item_type == "folder":
                 # 拼接子目录路径，继续递归
                 sub_path = current_path.rstrip("/") + "/" + item_name
                 dirs_to_scan.append(sub_path)
             elif item_id:
-                result[item_id] = item_name
+                result[item_id] = {"name": item_name, "size": item_size}
 
     return result
 
 
+def _query_db_mapping() -> dict[str, list[int]]:
+    """从 TelDrive 数据库直接查询 file_id → [message_id, ...] 映射。"""
+    if not DB_ENABLED:
+        return {}
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST, port=DB_PORT,
+            user=DB_USER, password=DB_PASSWORD,
+            database=DB_NAME,
+        )
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, parts FROM teldrive.files WHERE type='file' AND parts IS NOT NULL"
+        )
+        result: dict[str, list[int]] = {}
+        skipped = 0
+        for row in cur.fetchall():
+            file_id, name, parts = str(row[0]), row[1], row[2]
+            # 跳过 MD5 格式文件名的 chunk 记录 (被本程序误添加的)
+            if _is_md5_name(name):
+                skipped += 1
+                continue
+            msg_ids = [p["id"] for p in parts if "id" in p]
+            if msg_ids:
+                result[file_id] = msg_ids
+        conn.close()
+        if skipped:
+            print(f"   跳过 {skipped} 个 MD5 格式条目")
+        return result
+    except Exception as e:
+        print(f"  ⚠️ 数据库查询失败: {e}")
+        return {}
+
+
+def _query_db_msg_ids() -> set[int]:
+    """从 TelDrive 数据库查询所有已被使用的 message_id 集合。"""
+    if not DB_ENABLED:
+        return set()
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST, port=DB_PORT,
+            user=DB_USER, password=DB_PASSWORD,
+            database=DB_NAME,
+        )
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT parts FROM teldrive.files WHERE type='file' AND parts IS NOT NULL"
+        )
+        all_ids: set[int] = set()
+        for (parts,) in cur.fetchall():
+            for p in parts:
+                if "id" in p:
+                    all_ids.add(p["id"])
+        conn.close()
+        return all_ids
+    except Exception as e:
+        print(f"  ⚠️ 数据库查询失败: {e}")
+        return set()
+
+
 async def build_initial_mapping(client: TelegramClient):
-    """启动时扫描频道历史消息，按文件名匹配 TelDrive 文件，补全本地映射。"""
+    """启动时从数据库直接构建 file_id → [message_id] 映射，无需扫描频道。"""
     print("📋 正在构建文件映射...")
 
-    # 获取 TelDrive 当前文件: {file_id: file_name}
+    if DB_ENABLED:
+        # 数据库直查: 最精确的方式
+        db_mapping = _query_db_mapping()
+        if db_mapping:
+            _save_mapping(db_mapping)
+            print(f"   ✅ 从数据库构建映射: {len(db_mapping)} 条记录")
+            return
+        print("   ⚠️ 数据库查询无结果，回退到频道扫描方式")
+
+    # 回退: 频道扫描方式 (当无数据库配置时)
     td_files = get_teldrive_files()
     mapping = _load_mapping()
     unmapped_ids = {fid for fid in td_files if fid not in mapping}
@@ -273,42 +357,39 @@ async def build_initial_mapping(client: TelegramClient):
         _save_mapping(mapping)
         print(f"   清理 {len(stale)} 条过期映射")
 
+    # 过滤掉 MD5 格式文件名的条目
+    md5_ids = {fid for fid in unmapped_ids if _is_md5_name(td_files[fid]["name"])}
+    if md5_ids:
+        print(f"   跳过 {len(md5_ids)} 个 MD5 格式条目")
+        unmapped_ids -= md5_ids
+
     if not unmapped_ids:
         print(f"   映射完整: {len(mapping)} 条记录, 无需扫描频道")
         return
 
     print(f"   需要匹配 {len(unmapped_ids)} 个文件, 开始扫描频道历史...")
-
-    # 按文件名反查: {name: file_id} (仅未映射的)
     name_to_fid: dict[str, str] = {}
     for fid in unmapped_ids:
-        name_to_fid[td_files[fid]] = fid
+        name_to_fid[td_files[fid]["name"]] = fid
 
-    # 扫描频道历史消息
     MAX_SCAN = MAX_SCAN_MESSAGES
     found = 0
     scanned = 0
-
     async for msg in client.iter_messages(CHANNEL_ID, limit=MAX_SCAN):
         scanned += 1
-
         try:
             file_info = extract_file_info(msg)
         except Exception:
-            continue  # 单条消息解析失败不影响整体
-
+            continue
         if file_info is None:
             continue
-
         name = file_info["name"]
         if name in name_to_fid:
             fid = name_to_fid.pop(name)
             mapping[fid] = [msg.id]
             found += 1
             if not name_to_fid:
-                break  # 全部找到，提前退出
-
-        # 每 200 条打印进度并保存 (防崩溃丢数据)
+                break
         if scanned % 200 == 0:
             _save_mapping(mapping)
             print(f"   ... 已扫描 {scanned} 条消息, 匹配 {found} 个文件")
@@ -337,7 +418,7 @@ async def sync_deletions(client: TelegramClient):
 
         curr_files = get_teldrive_files()
         curr_ids = set(curr_files.keys())
-        curr_names = set(curr_files.values())
+        curr_names = set(info["name"] for info in curr_files.values())
         disappeared_ids = prev_ids - curr_ids
         new_ids = curr_ids - prev_ids
 
@@ -349,19 +430,22 @@ async def sync_deletions(client: TelegramClient):
         # --- 处理本次消失的文件 ---
         if disappeared_ids:
             for fid in disappeared_ids:
-                old_name = prev_files.get(fid, "")
+                old_info = prev_files.get(fid, {})
+                old_name = old_info.get("name", "") if isinstance(old_info, dict) else ""
                 if old_name and old_name in curr_names:
                     # 文件名仍在，只是 ID 变了（移动/重建）→ 立即迁移映射
-                    new_name_to_id = {name: nid for nid, name in curr_files.items()
+                    new_name_to_id = {info["name"]: nid for nid, info in curr_files.items()
                                       if nid in new_ids}
                     old_msgs = mapping.pop(fid, [])
                     if old_name in new_name_to_id:
                         new_fid = new_name_to_id[old_name]
                         mapping[new_fid] = old_msgs
-                        print(f"  � 映射迁移: {old_name}")
+                        print(f"  🔄 映射迁移: {old_name}")
                     _save_mapping(mapping)
                 elif fid not in pending_deletions:
-                    # 文件名也不在了 → 加入待确认队列
+                    # 文件名也不在了 → 加入待确认队列（跳过 MD5 格式的 chunk 记录）
+                    if _is_md5_name(old_name):
+                        continue
                     pending_deletions[fid] = {
                         "name": old_name,
                         "msg_ids": mapping.get(fid, []),
@@ -377,8 +461,8 @@ async def sync_deletions(client: TelegramClient):
             if name in curr_names:
                 print(f"  ✅ 文件 {name} 已重新出现，取消删除")
                 # 迁移映射到新 ID
-                for nid, nname in curr_files.items():
-                    if nname == name and nid not in mapping:
+                for nid, ninfo in curr_files.items():
+                    if ninfo["name"] == name and nid not in mapping:
                         mapping[nid] = info["msg_ids"]
                         print(f"  🔄 映射迁移: {name}")
                         break
@@ -421,11 +505,25 @@ async def sync_deletions(client: TelegramClient):
                     print(f"  ❌ 删除频道消息失败: {e}")
             _save_mapping(mapping)
 
-        # 新增的文件同步到映射
+        # 新增的文件 → 立即从数据库同步映射
         if new_ids:
-            unmapped = [fid for fid in new_ids if fid not in _load_mapping()]
-            if unmapped:
-                print(f"📋 发现 {len(unmapped)} 个新文件未有映射, 将在下次启动时扫描")
+            mapping = _load_mapping()
+            unmapped = [fid for fid in new_ids if fid not in mapping]
+            if unmapped and DB_ENABLED:
+                db_mapping = _query_db_mapping()
+                updated = 0
+                for fid in unmapped:
+                    if fid in db_mapping:
+                        mapping[fid] = db_mapping[fid]
+                        updated += 1
+                if updated:
+                    _save_mapping(mapping)
+                    print(f"📋 从数据库同步 {updated} 个新文件映射")
+                remaining = len(unmapped) - updated
+                if remaining:
+                    print(f"  ⚠️ {remaining} 个新文件暂无数据库记录")
+            elif unmapped:
+                print(f"📋 发现 {len(unmapped)} 个新文件未有映射 (无数据库配置)")
 
         prev_ids = curr_ids
         prev_files = curr_files
@@ -537,10 +635,22 @@ async def main():
         size = file_info["size"]
         print(f"\n📁 检测到新文件: {name} ({size:,} bytes)")
 
-        # 0. 分片文件 → 跳过，不添加到 TelDrive
+        # 0a. 分片文件 → 跳过，不添加到 TelDrive
         if _is_chunk_file(name):
             base_name = _get_base_name(name)
             print(f"  📎 分片文件 {name}，属于 {base_name}，跳过添加")
+            return
+
+        # 0b. MD5 格式文件名 → TelDrive Random Chunking 产生的 chunk → 跳过添加
+        if _is_md5_name(name):
+            print(f"  📎 MD5 chunk {name}，疑似 TelDrive Random Chunking 产生，跳过添加")
+            # 通过数据库查询确认该 message_id 是否已被 TelDrive 使用
+            if DB_ENABLED:
+                known_ids = _query_db_msg_ids()
+                if msg.id in known_ids:
+                    print(f"    ✅ msg_id={msg.id} 已在 TelDrive 数据库中，确认为 chunk")
+                else:
+                    print(f"    ⚠️ msg_id={msg.id} 不在 TelDrive 数据库中，可能尚未处理")
             return
 
         # 获取本地映射和 TelDrive 文件列表
@@ -550,7 +660,8 @@ async def main():
         # 1. 本地映射中已有同名文件 → 频道重复消息 → 删除
         mapped_names = set()
         for fid, msg_ids in mapping.items():
-            fname = td_files.get(fid, "")
+            info = td_files.get(fid)
+            fname = info["name"] if info else ""
             if fname:
                 mapped_names.add(fname)
         if name in mapped_names:
@@ -563,7 +674,7 @@ async def main():
             return
 
         # 2. TelDrive 中已有同名文件但未在本地映射 → TelDrive 已自动导入 → 不添加，仅记录映射
-        existing_name_to_fid = {fname: fid for fid, fname in td_files.items()}
+        existing_name_to_fid = {info["name"]: fid for fid, info in td_files.items()}
         if name in existing_name_to_fid:
             fid = existing_name_to_fid[name]
             mapping[fid] = [msg.id]

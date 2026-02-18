@@ -32,3 +32,11 @@ max_scan_messages = 10000
 
 # 文件消失后确认删除的检查周期数 (防止移动操作误删)
 confirm_cycles = 3
+
+# TelDrive PostgreSQL 数据库连接 (可选, 用于精确的 parts/message_id 映射)
+# 配置后可直接从数据库读取文件分片信息, 支持 Random Chunking 模式
+# db_host = "your-db-host"
+# db_port = 5432
+# db_user = "teldrive"
+# db_password = "your_password"
+# db_name = "postgres"
