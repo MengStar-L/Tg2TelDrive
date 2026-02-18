@@ -7,6 +7,7 @@ Telegram 频道文件自动同步到 TelDrive —— 实时监听频道新消息
 - 📁 **实时监听**：自动监听 Telegram 频道新文件，立即注册到 TelDrive
 - 🔄 **删除同步**：定时检测 TelDrive 中被删除的文件，自动清理频道对应消息
 - 🚫 **重复检测**：检测到频道中新发的文件与 TelDrive 已有文件重名时，自动删除该消息
+- 🧩 **Random Chunking 支持**：兼容 TelDrive Random Chunking 模式，通过数据库直查 parts 建立精确的文件-消息映射，自动跳过 MD5 格式的 chunk 文件
 - 📱 **QR 码登录**：支持扫码登录 Telegram，无需输入手机号
 
 ## 部署步骤
@@ -23,7 +24,7 @@ git clone https://github.com/MengStar-L/Tg2TelDrive.git /opt/Tg2TelDrive
 cd /opt/Tg2TelDrive
 python3 -m venv venv
 source venv/bin/activate
-pip install telethon requests qrcode
+pip install telethon requests qrcode psycopg2-binary
 ```
 
 ### 3. 创建配置文件
@@ -55,6 +56,13 @@ sync_interval = 10                 # 删除同步轮询间隔 (秒)
 sync_enabled = true                # 是否开启删除同步
 max_scan_messages = 10000          # 启动时扫描历史消息上限
 confirm_cycles = 3                 # 文件消失后确认删除的检查周期数
+
+# 可选: TelDrive 数据库连接 (启用 Random Chunking 时必填)
+db_host = "your-db-host"
+db_port = 5432
+db_user = "teldrive"
+db_password = "your_password"
+db_name = "postgres"
 ```
 
 > **api_id / api_hash 获取方式**：前往 [my.telegram.org](https://my.telegram.org) → API development tools
