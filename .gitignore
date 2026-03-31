@@ -12,3 +12,10 @@ file_msg_map.json
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+
+# Local tools / logs
+.codebuddy/
+runtime.log
+ui-ux-pro-max-skill/
+

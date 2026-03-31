@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tel2TelDrive 管理台</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script defer src="/static/dashboard.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar glass-card">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M4 16.5L11.6 4h.8L20 16.5h-3.9l-4.1-7.1L8 16.5H4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M10 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <p class="brand-title">Tel2TelDrive</p>
+          <p class="brand-subtitle">管理控制台</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="主导航">
+        <button class="nav-icon" type="button" data-view="statusView" data-tooltip="运行状态" aria-label="运行状态">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v4M6.4 6.4l2.8 2.8M4 12h4M6.4 17.6l2.8-2.8M12 20v-4M17.6 17.6l-2.8-2.8M20 12h-4M17.6 6.4l-2.8 2.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="nav-icon active" type="button" data-view="loginView" data-tooltip="扫码登录" aria-label="扫码登录" aria-current="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 6h4v4H6zM14 6h4v4h-4zM6 14h4v4H6zM14 14h1.5M18 14v4M14 18h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="nav-icon" type="button" data-view="logsView" data-tooltip="活动日志" aria-label="活动日志">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 12h14M5 17h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="nav-icon" type="button" data-view="detailsView" data-tooltip="运行概览" aria-label="运行概览">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 18h14M7 18V9M12 18V6M17 18v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="footer-dot"></div>
+        <span>Live</span>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <section class="status-strip glass-card">
+        <div class="status-main">
+          <span class="live-indicator"><i></i> 实时状态</span>
+          <strong id="phaseLabel">服务启动中</strong>
+          <span id="phaseMeta">等待服务初始化</span>
+        </div>
+      </section>
+
+      <section class="metrics-grid">
+        <article class="metric-card glass-card">
+          <span class="metric-label">当前阶段</span>
+          <strong class="metric-value" id="metricPhaseValue">服务启动中</strong>
+          <span class="metric-meta" id="metricPhaseMeta">等待加载</span>
+        </article>
+        <article class="metric-card glass-card">
+          <span class="metric-label">Telegram 会话</span>
+          <strong class="metric-value" id="metricSessionValue">未授权</strong>
+          <span class="metric-meta" id="metricSessionMeta">首次登录或会话失效时会进入扫码流程</span>
+        </article>
+        <article class="metric-card glass-card">
+          <span class="metric-label">同步策略</span>
+          <strong class="metric-value" id="metricSyncValue">--</strong>
+          <span class="metric-meta" id="metricSyncMeta">读取配置中</span>
+        </article>
+        <article class="metric-card glass-card">
+          <span class="metric-label">日志归档</span>
+          <strong class="metric-value" id="metricLogValue">0 条</strong>
+          <span class="metric-meta" id="metricLogMeta">等待首条系统日志</span>
+        </article>
+      </section>
+
+      <section class="view-stage">
+        <article class="content-view" id="statusView" data-view-panel>
+          <div class="bottom-grid">
+            <section class="panel glass-card slim-panel">
+              <div class="panel-header compact">
+                <div>
+                  <p class="panel-kicker">运行状态</p>
+                  <h2>当前服务信息</h2>
+                </div>
+              </div>
+              <div class="summary-list">
+                <div class="summary-item">
+                  <span>同步轮询</span>
+                  <strong id="summarySyncInterval">--</strong>
+                </div>
+                <div class="summary-item">
+                  <span>确认周期</span>
+                  <strong id="summaryConfirmCycles">--</strong>
+                </div>
+                <div class="summary-item">
+                  <span>历史扫描上限</span>
+                  <strong id="summaryMaxScan">--</strong>
+                </div>
+                <div class="summary-item">
+                  <span>服务启动时间</span>
+                  <strong id="summaryStartedAt">--</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel glass-card slim-panel emphasis-panel">
+              <div class="panel-header compact">
+                <div>
+                  <p class="panel-kicker">异常与提示</p>
+                  <h2>登录反馈</h2>
+                </div>
+              </div>
+              <div class="feedback-block" id="feedbackBlock">当前暂无异常，系统会在此展示二维码刷新、密码校验或重连阶段的关键信息。</div>
+            </section>
+          </div>
+        </article>
+
+        <article class="content-view active" id="loginView" data-view-panel>
+          <section class="panel glass-card login-panel">
+            <div class="panel-header">
+              <div>
+                <p class="panel-kicker">登录控制</p>
+                <h2>扫码登录 / 两步验证</h2>
+              </div>
+              <button class="action-button" id="refreshQrBtn" type="button">刷新二维码</button>
+            </div>
+
+            <div class="login-content">
+              <div class="qr-shell" id="qrShell">
+                <img id="qrImage" alt="Telegram 登录二维码">
+                <div class="qr-placeholder" id="qrPlaceholder">等待生成登录二维码</div>
+              </div>
+
+              <div class="login-copy">
+                <span class="badge" id="loginBadge">未就绪</span>
+                <h3 id="loginTitle">服务初始化中</h3>
+                <p id="loginDescription">正在启动后台服务，稍后将根据当前会话状态自动展示二维码或运行状态。</p>
+
+                <div class="tips-box">
+                  <div class="tips-title">扫码说明</div>
+                  <ol>
+                    <li>打开手机 Telegram。</li>
+                    <li>进入“设置 → 设备 → 连接桌面设备”。</li>
+                    <li>扫描此页面展示的二维码完成登录。</li>
+                  </ol>
+                </div>
+
+                <dl class="detail-grid">
+                  <div>
+                    <dt>监听频道</dt>
+                    <dd id="channelValue">--</dd>
+                  </div>
+                  <div>
+                    <dt>会话文件</dt>
+                    <dd id="sessionFileValue">--</dd>
+                  </div>
+                  <div>
+                    <dt>二维码过期</dt>
+                    <dd id="qrExpireValue">--</dd>
+                  </div>
+                  <div>
+                    <dt>最近刷新</dt>
+                    <dd id="updatedAtValue">--</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+
+            <form class="password-panel hidden" id="passwordForm">
+              <label for="passwordInput">Telegram 两步验证密码</label>
+              <div class="password-row">
+                <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="仅在账号开启两步验证时填写">
+                <button class="primary-button" type="submit">提交密码</button>
+              </div>
+              <p class="password-hint" id="passwordHint">当前无需输入两步验证密码。</p>
+            </form>
+          </section>
+        </article>
+
+        <article class="content-view" id="logsView" data-view-panel>
+          <section class="panel glass-card log-panel">
+            <div class="panel-header">
+              <div>
+                <p class="panel-kicker">系统活动</p>
+                <h2>实时操作日志</h2>
+              </div>
+              <span class="stream-state" id="logStatus">实时流连接中</span>
+            </div>
+
+            <div class="log-toolbar">
+              <div class="toolbar-chip">
+                <span>日志文件</span>
+                <strong id="logFileName">runtime.log</strong>
+              </div>
+              <div class="toolbar-chip">
+                <span>累计记录</span>
+                <strong id="logCountValue">0</strong>
+              </div>
+              <div class="toolbar-chip">
+                <span>最近日志</span>
+                <strong id="lastLogAtValue">--</strong>
+              </div>
+            </div>
+
+            <div class="log-stream" id="logStream" aria-live="polite"></div>
+          </section>
+        </article>
+
+        <article class="content-view" id="detailsView" data-view-panel>
+          <section class="panel glass-card overview-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="panel-kicker">运行概览</p>
+                <h2>关键运行参数</h2>
+              </div>
+            </div>
+            <div class="detail-grid detail-grid-wide">
+              <div>
+                <dt>监听频道</dt>
+                <dd id="detailChannelValue">--</dd>
+              </div>
+              <div>
+                <dt>会话文件</dt>
+                <dd id="detailSessionFileValue">--</dd>
+              </div>
+              <div>
+                <dt>同步模式</dt>
+                <dd id="detailSyncValue">--</dd>
+              </div>
+              <div>
+                <dt>最近日志</dt>
+                <dd id="detailLastLogValue">--</dd>
+              </div>
+              <div>
+                <dt>二维码过期</dt>
+                <dd id="detailQrExpireValue">--</dd>
+              </div>
+              <div>
+                <dt>最近刷新</dt>
+                <dd id="detailUpdatedAtValue">--</dd>
+              </div>
+              <div>
+                <dt>日志文件</dt>
+                <dd id="detailLogFileValue">runtime.log</dd>
+              </div>
+              <div>
+                <dt>服务启动时间</dt>
+                <dd id="detailStartedAtValue">--</dd>
+              </div>
+            </div>
+          </section>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
