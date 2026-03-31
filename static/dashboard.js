@@ -35,6 +35,8 @@ const dom = {
   navButtons: Array.from(document.querySelectorAll('.nav-icon[data-view]')),
   views: Array.from(document.querySelectorAll('[data-view-panel]')),
   viewStage: document.querySelector('.view-stage'),
+  metricsGrid: document.getElementById('metricsGrid'),
+
 
 
   phaseLabel: document.getElementById('phaseLabel'),
@@ -283,7 +285,14 @@ function cleanupViews() {
   });
 }
 
+function updateMetricsVisibility() {
+  const visible = state.activeView === 'statusView';
+  dom.metricsGrid?.classList.toggle('hidden', !visible);
+  dom.metricsGrid?.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
 function setActiveView(viewId, options = {}) {
+
   const { immediate = false, animateButton = false } = options;
   const nextView = dom.views.find((view) => view.id === viewId);
   if (!nextView) {
@@ -293,9 +302,10 @@ function setActiveView(viewId, options = {}) {
   const currentView = dom.views.find((view) => view.id === state.activeView && view.classList.contains('active'));
   state.activeView = viewId;
   writeStoredActiveView(viewId);
-
+  updateMetricsVisibility();
 
   dom.navButtons.forEach((button) => {
+
     const active = button.dataset.view === viewId;
     button.classList.toggle('active', active);
     button.setAttribute('aria-current', active ? 'true' : 'false');
