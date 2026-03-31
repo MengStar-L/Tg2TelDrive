@@ -409,7 +409,12 @@
                       <input type="text" data-config-path="teldrive.db_name" placeholder="postgres">
                     </label>
                   </div>
+                  <div class="config-inline-actions">
+                    <button class="action-button secondary-button" id="testDbConnectionBtn" type="button">测试数据库连接</button>
+                  </div>
+                  <p class="config-status-note" id="dbTestResult">可使用当前输入值测试数据库连通性，测试不会保存配置。</p>
                 </div>
+
               </details>
 
               <details class="config-section" data-config-section="web">

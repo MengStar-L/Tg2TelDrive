@@ -85,7 +85,10 @@ const dom = {
   configSaveNote: document.getElementById('configSaveNote'),
   saveConfigBtn: document.getElementById('saveConfigBtn'),
   reloadConfigBtn: document.getElementById('reloadConfigBtn'),
+  testDbConnectionBtn: document.getElementById('testDbConnectionBtn'),
+  dbTestResult: document.getElementById('dbTestResult'),
 };
+
 
 let stream;
 
@@ -145,7 +148,15 @@ function setStreamStatus(text, mode) {
   setStatusChip(dom.logStatus, mode);
 }
 
+function setNoteTone(element, tone) {
+  element?.classList.remove('is-success', 'is-error', 'is-warn');
+  if (tone) {
+    element?.classList.add(tone);
+  }
+}
+
 function toggleAccessLock(visible) {
+
   dom.accessLock?.classList.toggle('hidden', !visible);
   dom.appShell?.classList.toggle('is-locked', visible);
   if (visible) {
@@ -861,6 +872,29 @@ dom.passwordForm.addEventListener('submit', async (event) => {
   }
 });
 
+dom.testDbConnectionBtn?.addEventListener('click', async () => {
+  const defaultText = dom.testDbConnectionBtn.textContent;
+  dom.testDbConnectionBtn.disabled = true;
+  dom.testDbConnectionBtn.textContent = '测试中...';
+  dom.dbTestResult.textContent = '正在测试数据库连接，请稍候...';
+  setNoteTone(dom.dbTestResult, 'is-warn');
+
+  try {
+    const response = await requestJson('/api/database/test', {
+      method: 'POST',
+      body: JSON.stringify(serializeConfigForm()),
+    });
+    dom.dbTestResult.textContent = response.message || '数据库连接成功。';
+    setNoteTone(dom.dbTestResult, 'is-success');
+  } catch (error) {
+    dom.dbTestResult.textContent = error.message;
+    setNoteTone(dom.dbTestResult, 'is-error');
+  } finally {
+    dom.testDbConnectionBtn.disabled = false;
+    dom.testDbConnectionBtn.textContent = defaultText;
+  }
+});
+
 dom.configForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const defaultText = dom.saveConfigBtn.textContent;
@@ -868,6 +902,7 @@ dom.configForm.addEventListener('submit', async (event) => {
   dom.saveConfigBtn.textContent = '保存中...';
   dom.configSaveNote.textContent = '正在保存配置并通知服务重载，请稍候...';
   try {
+
     const response = await requestJson('/api/config', {
       method: 'POST',
       body: JSON.stringify(serializeConfigForm()),

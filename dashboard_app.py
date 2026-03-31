@@ -188,10 +188,18 @@ class ConfigStore:
         return self.runtime()
 
     def runtime(self) -> RuntimeConfig:
-        telegram = self._data["telegram"]
-        teldrive = self._data["teldrive"]
-        web = self._data["web"]
-        missing_fields = self._collect_missing_fields(self._data)
+        return self._runtime_from_data(self._data)
+
+    def runtime_from_payload(self, payload: Any, *, strict: bool = False) -> RuntimeConfig:
+        if not isinstance(payload, dict):
+            raise ValueError("配置数据格式错误")
+        return self._runtime_from_data(self._normalize(payload, strict=strict))
+
+    def _runtime_from_data(self, data: dict[str, dict[str, Any]]) -> RuntimeConfig:
+        telegram = data["telegram"]
+        teldrive = data["teldrive"]
+        web = data["web"]
+        missing_fields = self._collect_missing_fields(data)
         return RuntimeConfig(
             config_exists=self._config_exists,
             config_error=self._config_error,
@@ -216,9 +224,9 @@ class ConfigStore:
             frontend_monitor_port=web["frontend_monitor_port"],
             log_buffer_size=web["log_buffer_size"],
             log_file=web["log_file"],
-
             missing_fields=missing_fields,
         )
+
 
     def payload(self) -> dict[str, Any]:
         runtime = self.runtime()
@@ -839,7 +847,60 @@ def query_db_msg_ids(config: RuntimeConfig) -> set[int]:
         return set()
 
 
+def get_db_missing_fields(config: RuntimeConfig) -> list[str]:
+    missing: list[str] = []
+    if not config.db_host:
+        missing.append("DB Host")
+    if not config.db_user:
+        missing.append("DB User")
+    if not config.db_password:
+        missing.append("DB Password")
+    if not config.db_name:
+        missing.append("DB Name")
+    return missing
+
+
+def test_database_connection(config: RuntimeConfig) -> dict[str, Any]:
+    if psycopg2 is None:
+        raise RuntimeError("当前环境未安装 psycopg2-binary，无法测试数据库连接")
+
+    missing_fields = get_db_missing_fields(config)
+    if missing_fields:
+        raise ValueError(f"请先填写：{'、'.join(missing_fields)}")
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(
+            host=config.db_host,
+            port=config.db_port,
+            user=config.db_user,
+            password=config.db_password,
+            database=config.db_name,
+            connect_timeout=5,
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT current_database(), current_user")
+        database_name, user_name = cur.fetchone()
+        return {
+            "ok": True,
+            "message": f"数据库连接成功：{database_name} / {user_name}@{config.db_host}:{config.db_port}",
+        }
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"数据库连接失败：{exc}") from exc
+    finally:
+        if cur is not None:
+            with suppress(Exception):
+                cur.close()
+        if conn is not None:
+            with suppress(Exception):
+                conn.close()
+
+
 async def find_chunk_messages(client: TelegramClient, config: RuntimeConfig, base_names: list[str]) -> list[int]:
+
     chunk_ids: list[int] = []
     base_set = set(base_names)
 
@@ -1548,8 +1609,21 @@ async def get_config():
     return config_store.payload()
 
 
+@app.post("/api/database/test")
+async def test_database(request: Request):
+    try:
+        payload = await request.json()
+        runtime = config_store.runtime_from_payload(payload, strict=True)
+        return test_database_connection(runtime)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/config")
 async def save_config(request: Request):
+
     try:
         payload = await request.json()
         old_runtime = config_store.runtime()
