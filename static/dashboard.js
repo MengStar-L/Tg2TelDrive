@@ -2,11 +2,15 @@ const state = {
   snapshot: null,
   logs: [],
   config: null,
+  authRequired: false,
+  authenticated: false,
+  bootstrapLoaded: false,
   activeView: 'loginView',
   viewTransitionTimer: null,
   navAnimationTimer: null,
   configSectionTimers: new WeakMap(),
 };
+
 
 const CONFIG_SECTION_STORAGE_KEY = 'tel2teldrive-config-sections';
 const CONFIG_SECTION_ANIMATION_DURATION = 340;
@@ -17,12 +21,20 @@ const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 
 const dom = {
+  appShell: document.getElementById('appShell'),
+  accessLock: document.getElementById('accessLock'),
+  accessLockForm: document.getElementById('accessLockForm'),
+  accessLockInput: document.getElementById('accessLockInput'),
+  accessLockHint: document.getElementById('accessLockHint'),
+  accessLockBadge: document.getElementById('accessLockBadge'),
+  accessLockDescription: document.getElementById('accessLockDescription'),
   navButtons: Array.from(document.querySelectorAll('.nav-icon[data-view]')),
   views: Array.from(document.querySelectorAll('[data-view-panel]')),
   viewStage: document.querySelector('.view-stage'),
 
 
   phaseLabel: document.getElementById('phaseLabel'),
+
   phaseMeta: document.getElementById('phaseMeta'),
   metricPhaseValue: document.getElementById('metricPhaseValue'),
   metricPhaseMeta: document.getElementById('metricPhaseMeta'),
@@ -133,7 +145,56 @@ function setStreamStatus(text, mode) {
   setStatusChip(dom.logStatus, mode);
 }
 
+function toggleAccessLock(visible) {
+  dom.accessLock?.classList.toggle('hidden', !visible);
+  dom.appShell?.classList.toggle('is-locked', visible);
+  if (visible) {
+    setStreamStatus('等待页面解锁', 'is-warn');
+  }
+}
+
+function applyAuthStatus(payload) {
+  state.authRequired = Boolean(payload?.auth_required);
+  state.authenticated = !state.authRequired || Boolean(payload?.authenticated);
+  toggleAccessLock(state.authRequired && !state.authenticated);
+
+  if (state.authRequired) {
+    dom.accessLockBadge.textContent = state.authenticated ? '已解锁' : '访问受保护';
+    setBadgeTheme(dom.accessLockBadge, state.authenticated ? 'is-success' : 'is-warn');
+    dom.accessLockDescription.textContent = state.authenticated
+      ? '页面已解锁，当前可正常查看控制台信息。'
+      : '该页面已开启密码锁，解锁后才可查看运行状态、日志和配置。';
+  }
+}
+
+async function loadAuthStatus() {
+  const payload = await requestJson('/api/auth/status');
+  applyAuthStatus(payload);
+  if (state.authRequired && !state.authenticated) {
+    dom.accessLockInput.value = '';
+    dom.accessLockHint.textContent = '请输入配置文件中的前端访问密码。';
+    window.setTimeout(() => dom.accessLockInput.focus(), 0);
+  }
+  return state.authenticated;
+}
+
+async function initializeDashboard(options = {}) {
+  const { force = false } = options;
+  const authenticated = await loadAuthStatus();
+  if (!authenticated) {
+    return false;
+  }
+
+  if (force || !state.bootstrapLoaded) {
+    await loadBootstrap();
+    state.bootstrapLoaded = true;
+  }
+  connectStream();
+  return true;
+}
+
 function phaseTone(phase) {
+
   if (phase === 'running' || phase === 'authorized') {
     return 'is-success';
   }
@@ -655,10 +716,17 @@ async function requestJson(url, options = {}) {
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {
+    if (response.status === 401) {
+      applyAuthStatus({ auth_required: true, authenticated: false });
+      if (stream) {
+        stream.close();
+      }
+    }
     throw new Error(data?.detail || '请求失败');
   }
   return data;
 }
+
 
 async function loadBootstrap() {
   const data = await requestJson('/api/bootstrap');
@@ -684,10 +752,14 @@ async function reloadConfigFromServer() {
 
 
 function connectStream() {
+  if (state.authRequired && !state.authenticated) {
+    return;
+  }
   if (stream) {
     stream.close();
   }
   stream = new EventSource('/api/stream');
+
   setStreamStatus('实时流连接中', 'is-warn');
 
   stream.onopen = () => {
@@ -707,7 +779,40 @@ function connectStream() {
   };
 }
 
+dom.accessLockForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const password = dom.accessLockInput.value.trim();
+  if (!password) {
+    dom.accessLockHint.textContent = '请输入前端访问密码。';
+    return;
+  }
+
+  const submitButton = dom.accessLockForm.querySelector('button[type="submit"]');
+  const defaultText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = '解锁中...';
+  dom.accessLockHint.textContent = '正在校验前端访问密码，请稍候...';
+  try {
+    await requestJson('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+    dom.accessLockInput.value = '';
+    dom.accessLockHint.textContent = '密码校验通过，正在载入控制台...';
+    await initializeDashboard({ force: true });
+    dom.feedbackBlock.textContent = '页面已解锁，控制台数据已恢复加载。';
+  } catch (error) {
+    dom.accessLockHint.textContent = error.message;
+    dom.feedbackBlock.textContent = error.message;
+    window.setTimeout(() => dom.accessLockInput.focus(), 0);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = defaultText;
+  }
+});
+
 dom.refreshQrBtn.addEventListener('click', async () => {
+
   if (dom.refreshQrBtn.disabled) {
     return;
   }
@@ -778,11 +883,12 @@ dom.configForm.addEventListener('submit', async (event) => {
 
     renderSnapshot();
     dom.feedbackBlock.textContent = response.requires_process_restart
-      ? '配置已保存。Telegram / TelDrive 参数已重载；若修改了 Web 地址、端口或日志缓存条数，请重启进程后完全生效。'
+      ? '配置已保存。Telegram / TelDrive 参数已重载；若修改了 Web 地址、前端监测端口或日志缓存条数，请重启进程后完全生效。'
       : '配置已保存并已通知后台自动重载。';
     dom.configSaveNote.textContent = response.requires_process_restart
-      ? '配置已保存。当前运行进程的 Web 监听地址 / 端口不会立刻变化，请在合适时机重启进程。'
+      ? '配置已保存。当前运行进程的 Web 监听地址 / 前端监测端口不会立刻变化，请在合适时机重启进程。'
       : '配置已保存。Telegram / TelDrive 服务会自动使用新参数重载。';
+
   } catch (error) {
     dom.configSaveNote.textContent = error.message;
     dom.feedbackBlock.textContent = error.message;
@@ -814,11 +920,13 @@ dom.reloadConfigBtn.addEventListener('click', async () => {
   bindConfigSections();
   setActiveView(state.activeView, { immediate: true });
 
-
   try {
-    await loadBootstrap();
+    const ready = await initializeDashboard();
+    if (!ready) {
+      dom.feedbackBlock.textContent = '页面已加锁，请先输入前端访问密码。';
+    }
   } catch (error) {
     dom.feedbackBlock.textContent = error.message;
   }
-  connectStream();
 })();
+

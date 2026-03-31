@@ -44,8 +44,14 @@ confirm_cycles = 3
 [web]
 # Web 管理面板监听地址
 host = "0.0.0.0"
-port = 8080
+
+# 前端访问密码（留空则不启用页面密码锁）
+frontend_password = ""
+
+# 前端监测端口
+frontend_monitor_port = 8200
 
 # 管理页面保留的最近日志条数 / 落盘日志文件名
 log_buffer_size = 400
 log_file = "runtime.log"
+

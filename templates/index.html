@@ -8,7 +8,24 @@
   <script defer src="/static/dashboard.js"></script>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="access-lock hidden" id="accessLock">
+    <div class="access-lock-card glass-card">
+      <span class="badge is-warn" id="accessLockBadge">访问受保护</span>
+      <h1>请输入前端访问密码</h1>
+      <p id="accessLockDescription">该页面已开启密码锁，解锁后才可查看运行状态、日志和配置。</p>
+      <form class="access-lock-form" id="accessLockForm">
+        <label for="accessLockInput">前端访问密码</label>
+        <div class="access-lock-row">
+          <input id="accessLockInput" name="frontendPassword" type="password" autocomplete="current-password" placeholder="输入配置文件中的前端密码">
+          <button class="primary-button" id="accessLockSubmit" type="submit">解锁页面</button>
+        </div>
+        <p class="access-lock-hint" id="accessLockHint">请输入正确密码后继续。</p>
+      </form>
+    </div>
+  </div>
+
+  <div class="app-shell" id="appShell">
+
     <aside class="sidebar glass-card">
       <div class="brand-block">
         <div class="brand-mark" aria-hidden="true">
@@ -400,7 +417,8 @@
                   <div class="config-section-main">
                     <div class="config-section-head">
                       <h3>Web 面板</h3>
-                      <p>修改监听地址、端口或日志缓存条数后，需要重启进程才能完全生效。</p>
+                      <p>可在此设置前端访问密码、前端监测端口；修改监听地址、端口或日志缓存条数后，需要重启进程才能完全生效。</p>
+
                     </div>
                   </div>
                   <div class="config-section-meta">
@@ -415,8 +433,12 @@
                       <input type="text" data-config-path="web.host" placeholder="0.0.0.0">
                     </label>
                     <label class="config-field">
-                      <span>Port</span>
-                      <input type="number" min="1" data-config-path="web.port">
+                      <span>前端监测端口</span>
+                      <input type="number" min="1" data-config-path="web.frontend_monitor_port">
+                    </label>
+                    <label class="config-field config-field-wide">
+                      <span>前端访问密码</span>
+                      <input type="password" data-config-path="web.frontend_password" placeholder="留空则不启用页面密码锁">
                     </label>
                     <label class="config-field">
                       <span>日志缓存条数</span>
@@ -427,6 +449,7 @@
                       <input type="text" data-config-path="web.log_file" placeholder="runtime.log">
                     </label>
                   </div>
+
                 </div>
               </details>
 
@@ -435,7 +458,8 @@
                 <button class="primary-button" id="saveConfigBtn" type="submit">保存配置</button>
                 <button class="action-button secondary-button" id="reloadConfigBtn" type="button">重新读取</button>
               </div>
-              <p class="config-status-note" id="configSaveNote">保存后会自动重载 Telegram / TelDrive 配置；若修改 Web 监听地址或端口，请重启进程。</p>
+              <p class="config-status-note" id="configSaveNote">保存后会自动重载 Telegram / TelDrive 配置；若修改 Web 监听地址、前端监测端口或日志缓存条数，请重启进程。</p>
+
             </form>
           </section>
         </article>

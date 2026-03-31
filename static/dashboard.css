@@ -62,7 +62,82 @@ img {
   padding: 22px;
 }
 
+.app-shell.is-locked {
+  filter: blur(10px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.access-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.access-lock-card {
+  width: min(100%, 520px);
+  padding: 30px;
+  border-radius: 30px;
+  display: grid;
+  gap: 18px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.access-lock-card h1 {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 36px);
+  line-height: 1.15;
+}
+
+.access-lock-card p,
+.access-lock-hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.access-lock-form {
+  display: grid;
+  gap: 12px;
+}
+
+.access-lock-form label {
+  font-weight: 700;
+}
+
+.access-lock-row {
+  display: flex;
+  gap: 12px;
+}
+
+.access-lock-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+}
+
+.access-lock-row input:focus-visible {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.access-lock-hint {
+  color: #475569;
+}
+
 .sidebar {
+
   position: relative;
   z-index: 12;
   overflow: visible;
@@ -1167,8 +1242,10 @@ img {
 
   .panel-header,
   .password-row,
+  .access-lock-row,
   .log-meta,
   .config-actions,
+
   .toggle-card,
   .config-section-toggle,
   .config-section-meta {

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import mimetypes
 import re
+import secrets
 import tomllib
 from collections import deque
 from contextlib import asynccontextmanager, suppress
@@ -14,6 +16,7 @@ from io import BytesIO
 from itertools import count
 from pathlib import Path
 from typing import Any
+
 
 try:
     import psycopg2
@@ -25,7 +28,8 @@ import qrcode.image.svg
 import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
 from fastapi.staticfiles import StaticFiles
 from telethon import TelegramClient, events
 from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
@@ -71,10 +75,12 @@ DEFAULT_CONFIG: dict[str, dict[str, Any]] = {
     },
     "web": {
         "host": "0.0.0.0",
-        "port": 8080,
+        "frontend_password": "",
+        "frontend_monitor_port": 8200,
         "log_buffer_size": 400,
         "log_file": "runtime.log",
     },
+
 }
 
 FIELD_LABELS = {
@@ -123,9 +129,11 @@ class RuntimeConfig:
     db_password: str
     db_name: str
     web_host: str
-    web_port: int
+    frontend_password: str
+    frontend_monitor_port: int
     log_buffer_size: int
     log_file: str
+
     missing_fields: list[str]
 
     @property
@@ -204,9 +212,11 @@ class ConfigStore:
             db_password=teldrive["db_password"],
             db_name=teldrive["db_name"],
             web_host=web["host"],
-            web_port=web["port"],
+            frontend_password=web["frontend_password"],
+            frontend_monitor_port=web["frontend_monitor_port"],
             log_buffer_size=web["log_buffer_size"],
             log_file=web["log_file"],
+
             missing_fields=missing_fields,
         )
 
@@ -235,10 +245,12 @@ class ConfigStore:
             },
             "web": {
                 "host": runtime.web_host,
-                "port": runtime.web_port,
+                "frontend_password": runtime.frontend_password,
+                "frontend_monitor_port": runtime.frontend_monitor_port,
                 "log_buffer_size": runtime.log_buffer_size,
                 "log_file": runtime.log_file,
             },
+
             "meta": {
                 "config_exists": runtime.config_exists,
                 "config_ready": runtime.is_ready,
@@ -314,10 +326,12 @@ class ConfigStore:
 
         web = data["web"]
         web["host"] = self._parse_string(web_payload.get("host"), fallback=DEFAULT_CONFIG["web"]["host"])
-        web["port"] = self._parse_positive_int(
-            web_payload.get("port"),
-            "Web 端口",
-            default=DEFAULT_CONFIG["web"]["port"],
+        web["frontend_password"] = self._parse_string(web_payload.get("frontend_password"))
+        web_port_value = web_payload.get("frontend_monitor_port", web_payload.get("port"))
+        web["frontend_monitor_port"] = self._parse_positive_int(
+            web_port_value,
+            "前端监测端口",
+            default=DEFAULT_CONFIG["web"]["frontend_monitor_port"],
             strict=strict,
         )
         web["log_buffer_size"] = self._parse_positive_int(
@@ -328,6 +342,7 @@ class ConfigStore:
         )
         web["log_file"] = self._parse_string(web_payload.get("log_file"), fallback=DEFAULT_CONFIG["web"]["log_file"])
         return data
+
 
     def _collect_missing_fields(self, data: dict[str, dict[str, Any]]) -> list[str]:
         missing: list[str] = []
@@ -410,10 +425,36 @@ class ConfigStore:
 config_store = ConfigStore(CONFIG_PATH)
 INITIAL_RUNTIME = config_store.runtime()
 APP_BIND_HOST = INITIAL_RUNTIME.web_host
-APP_BIND_PORT = INITIAL_RUNTIME.web_port
+APP_BIND_PORT = INITIAL_RUNTIME.frontend_monitor_port
+AUTH_COOKIE_NAME = "tel2teldrive_frontend_auth"
+PUBLIC_PATHS = {"/", "/api/auth/status", "/api/auth/login"}
+
+
+def frontend_auth_required(config: RuntimeConfig) -> bool:
+    return bool(config.frontend_password)
+
+
+def build_frontend_auth_cookie(password: str) -> str:
+    raw = f"tel2teldrive::{CONFIG_PATH.resolve()}::{password}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def is_frontend_authenticated(request: Request, config: RuntimeConfig) -> bool:
+    if not frontend_auth_required(config):
+        return True
+    current = request.cookies.get(AUTH_COOKIE_NAME, "")
+    if not current:
+        return False
+    expected = build_frontend_auth_cookie(config.frontend_password)
+    return secrets.compare_digest(current, expected)
+
+
+def is_public_path(path: str) -> bool:
+    return path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/")
 
 
 def iso_now() -> str:
+
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
@@ -1443,13 +1484,57 @@ app = FastAPI(title="Tel2TelDrive Dashboard", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def frontend_access_guard(request: Request, call_next):
+    runtime = config_store.runtime()
+    path = request.url.path
+    if not frontend_auth_required(runtime) or is_public_path(path) or is_frontend_authenticated(request, runtime):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse(status_code=401, content={"detail": "页面已加锁，请先输入前端访问密码"})
+    return FileResponse(TEMPLATES_DIR / "index.html")
+
+
 @app.get("/")
 async def index():
     return FileResponse(TEMPLATES_DIR / "index.html")
 
 
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    runtime = config_store.runtime()
+    required = frontend_auth_required(runtime)
+    return {
+        "auth_required": required,
+        "authenticated": is_frontend_authenticated(request, runtime) if required else True,
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    runtime = config_store.runtime()
+    if not frontend_auth_required(runtime):
+        return {"ok": True, "auth_required": False}
+
+    data = await request.json()
+    password = str(data.get("password", ""))
+    if not secrets.compare_digest(password, runtime.frontend_password):
+        raise HTTPException(status_code=401, detail="前端访问密码错误")
+
+    response = JSONResponse({"ok": True, "auth_required": True})
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        build_frontend_auth_cookie(runtime.frontend_password),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+    return response
+
+
 @app.get("/api/bootstrap")
 async def bootstrap():
+
     return {
         "state": broker.snapshot(),
         "logs": broker.logs_snapshot(),
@@ -1481,15 +1566,30 @@ async def save_config(request: Request):
 
     requires_process_restart = (
         runtime.web_host != APP_BIND_HOST
-        or runtime.web_port != APP_BIND_PORT
+        or runtime.frontend_monitor_port != APP_BIND_PORT
         or runtime.log_buffer_size != old_runtime.log_buffer_size
     )
-    return {
-        "ok": True,
-        "config": config_store.payload(),
-        "state": broker.snapshot(),
-        "requires_process_restart": requires_process_restart,
-    }
+
+    response = JSONResponse(
+        {
+            "ok": True,
+            "config": config_store.payload(),
+            "state": broker.snapshot(),
+            "requires_process_restart": requires_process_restart,
+        }
+    )
+    if frontend_auth_required(runtime):
+        response.set_cookie(
+            AUTH_COOKIE_NAME,
+            build_frontend_auth_cookie(runtime.frontend_password),
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    else:
+        response.delete_cookie(AUTH_COOKIE_NAME)
+    return response
+
 
 
 @app.get("/api/stream")
