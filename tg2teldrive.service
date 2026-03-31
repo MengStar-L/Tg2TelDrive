@@ -5,10 +5,11 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/Tg2TelDrive
-ExecStart=/opt/Tg2TelDrive/venv/bin/python /opt/Tg2TelDrive/main.py
+WorkingDirectory=/opt/Tel2TelDrive
+ExecStart=/opt/Tel2TelDrive/.venv/bin/python /opt/Tel2TelDrive/main.py
 Restart=on-failure
 RestartSec=10
+
 
 [Install]
 WantedBy=multi-user.target
