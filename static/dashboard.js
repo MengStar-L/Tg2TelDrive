@@ -1,15 +1,26 @@
 const state = {
   snapshot: null,
   logs: [],
+  config: null,
   activeView: 'loginView',
   viewTransitionTimer: null,
   navAnimationTimer: null,
+  configSectionTimers: new WeakMap(),
 };
+
+const CONFIG_SECTION_STORAGE_KEY = 'tel2teldrive-config-sections';
+const CONFIG_SECTION_ANIMATION_DURATION = 340;
+
+const CONFIG_SECTION_BODY_PADDING_BOTTOM = '20px';
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+
 
 const dom = {
   navButtons: Array.from(document.querySelectorAll('.nav-icon[data-view]')),
   views: Array.from(document.querySelectorAll('[data-view-panel]')),
   viewStage: document.querySelector('.view-stage'),
+
 
   phaseLabel: document.getElementById('phaseLabel'),
   phaseMeta: document.getElementById('phaseMeta'),
@@ -53,6 +64,15 @@ const dom = {
   summaryMaxScan: document.getElementById('summaryMaxScan'),
   summaryStartedAt: document.getElementById('summaryStartedAt'),
   feedbackBlock: document.getElementById('feedbackBlock'),
+  configForm: document.getElementById('configForm'),
+  configFields: Array.from(document.querySelectorAll('[data-config-path]')),
+  configSections: Array.from(document.querySelectorAll('[data-config-section]')),
+  configStatus: document.getElementById('configStatus'),
+
+  configHint: document.getElementById('configHint'),
+  configSaveNote: document.getElementById('configSaveNote'),
+  saveConfigBtn: document.getElementById('saveConfigBtn'),
+  reloadConfigBtn: document.getElementById('reloadConfigBtn'),
 };
 
 let stream;
@@ -77,6 +97,23 @@ function formatDateTime(value) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function getNestedValue(target, path) {
+  return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), target);
+}
+
+function setNestedValue(target, path, value) {
+  const keys = path.split('.');
+  const lastKey = keys.pop();
+  let current = target;
+  keys.forEach((key) => {
+    if (!current[key] || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key];
+  });
+  current[lastKey] = value;
+}
+
 function setBadgeTheme(element, tone) {
   element.classList.remove('is-success', 'is-warn', 'is-danger');
   if (tone) {
@@ -84,19 +121,23 @@ function setBadgeTheme(element, tone) {
   }
 }
 
+function setStatusChip(element, mode) {
+  element.classList.remove('is-online', 'is-warn', 'is-error');
+  if (mode) {
+    element.classList.add(mode);
+  }
+}
+
 function setStreamStatus(text, mode) {
   dom.logStatus.textContent = text;
-  dom.logStatus.classList.remove('is-online', 'is-warn', 'is-error');
-  if (mode) {
-    dom.logStatus.classList.add(mode);
-  }
+  setStatusChip(dom.logStatus, mode);
 }
 
 function phaseTone(phase) {
   if (phase === 'running' || phase === 'authorized') {
     return 'is-success';
   }
-  if (phase === 'awaiting_qr' || phase === 'awaiting_password' || phase === 'reconnecting') {
+  if (phase === 'awaiting_qr' || phase === 'awaiting_password' || phase === 'reconnecting' || phase === 'awaiting_config') {
     return 'is-warn';
   }
   if (phase === 'error' || phase === 'stopped') {
@@ -207,6 +248,214 @@ function bindNavigation() {
   });
 }
 
+function readConfigSectionState() {
+  try {
+    return JSON.parse(window.localStorage.getItem(CONFIG_SECTION_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeConfigSectionState(value) {
+  try {
+    window.localStorage.setItem(CONFIG_SECTION_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function persistConfigSectionState(section, expanded) {
+  const sectionKey = section.dataset.configSection;
+  if (!sectionKey) {
+    return;
+  }
+  const nextState = readConfigSectionState();
+  nextState[sectionKey] = expanded;
+  writeConfigSectionState(nextState);
+}
+
+function clearConfigSectionTimer(section) {
+  const activeTimer = state.configSectionTimers.get(section);
+  if (activeTimer) {
+    window.clearTimeout(activeTimer);
+    state.configSectionTimers.delete(section);
+  }
+}
+
+function setConfigSectionExpanded(section, expanded, options = {}) {
+  const { immediate = false, persist = true } = options;
+  const body = section.querySelector('.config-section-body');
+  const toggle = section.querySelector('.config-section-toggle');
+  const collapsedPaddingBottom = '0px';
+  const expandedPaddingBottom = CONFIG_SECTION_BODY_PADDING_BOTTOM;
+
+  clearConfigSectionTimer(section);
+  section.dataset.expanded = expanded ? 'true' : 'false';
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+
+  if (!body) {
+    section.open = expanded;
+    if (persist) {
+      persistConfigSectionState(section, expanded);
+    }
+    return;
+  }
+
+  if (immediate || reducedMotionQuery.matches) {
+    section.classList.remove('is-expanding', 'is-collapsing');
+    section.open = expanded;
+    body.style.overflow = 'hidden';
+    body.style.height = expanded ? 'auto' : '0px';
+    body.style.opacity = expanded ? '1' : '0';
+    body.style.paddingBottom = expanded ? expandedPaddingBottom : collapsedPaddingBottom;
+    if (persist) {
+      persistConfigSectionState(section, expanded);
+    }
+    return;
+  }
+
+  section.classList.toggle('is-expanding', expanded);
+  section.classList.toggle('is-collapsing', !expanded);
+  section.open = true;
+  body.style.overflow = 'hidden';
+
+  if (expanded) {
+    body.style.paddingBottom = expandedPaddingBottom;
+    body.style.height = collapsedPaddingBottom;
+    body.style.opacity = '0';
+    const endHeight = body.scrollHeight;
+    body.offsetHeight;
+
+    window.requestAnimationFrame(() => {
+      body.style.height = `${endHeight}px`;
+      body.style.opacity = '1';
+    });
+  } else {
+    const startHeight = body.getBoundingClientRect().height;
+    body.style.height = `${startHeight}px`;
+    body.style.opacity = '1';
+    body.style.paddingBottom = collapsedPaddingBottom;
+    body.offsetHeight;
+
+    window.requestAnimationFrame(() => {
+      body.style.height = collapsedPaddingBottom;
+      body.style.opacity = '0';
+    });
+  }
+
+  const timer = window.setTimeout(() => {
+    section.classList.remove('is-expanding', 'is-collapsing');
+    section.open = expanded;
+    body.style.height = expanded ? 'auto' : collapsedPaddingBottom;
+    body.style.opacity = expanded ? '1' : '0';
+    body.style.paddingBottom = expanded ? expandedPaddingBottom : collapsedPaddingBottom;
+    state.configSectionTimers.delete(section);
+    if (persist) {
+      persistConfigSectionState(section, expanded);
+    }
+  }, CONFIG_SECTION_ANIMATION_DURATION);
+
+  state.configSectionTimers.set(section, timer);
+}
+
+
+
+
+function syncConfigSections(config) {
+  const storedState = readConfigSectionState();
+  const meta = config?.meta || {};
+  const missingFields = new Set(Array.isArray(meta.missing_fields) ? meta.missing_fields : []);
+  const forceOpenAll = Boolean(meta.config_error);
+
+  dom.configSections.forEach((section) => {
+    const sectionKey = section.dataset.configSection;
+    const requiredLabels = (section.dataset.requiredLabels || '')
+      .split('|')
+      .map((label) => label.trim())
+      .filter(Boolean);
+    const shouldForceOpen = forceOpenAll || requiredLabels.some((label) => missingFields.has(label));
+    const defaultOpen = section.hasAttribute('open');
+    const storedOpen = storedState[sectionKey];
+    const nextOpen = shouldForceOpen || (typeof storedOpen === 'boolean' ? storedOpen : defaultOpen);
+    setConfigSectionExpanded(section, nextOpen, { immediate: true, persist: false });
+  });
+}
+
+function bindConfigSections() {
+  dom.configSections.forEach((section) => {
+    const toggle = section.querySelector('.config-section-toggle');
+    setConfigSectionExpanded(section, section.open, { immediate: true, persist: false });
+    if (!toggle) {
+      return;
+    }
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      const expanded = section.dataset.expanded !== 'false';
+      setConfigSectionExpanded(section, !expanded);
+    });
+  });
+}
+
+
+function populateConfigForm(config) {
+
+  if (!config) {
+    return;
+  }
+  dom.configFields.forEach((field) => {
+    const path = field.dataset.configPath;
+    const value = getNestedValue(config, path);
+    if (field.type === 'checkbox') {
+      field.checked = Boolean(value);
+      return;
+    }
+    field.value = value == null ? '' : value;
+  });
+}
+
+function serializeConfigForm() {
+  const payload = {};
+  dom.configFields.forEach((field) => {
+    const path = field.dataset.configPath;
+    const value = field.type === 'checkbox' ? field.checked : field.value.trim();
+    setNestedValue(payload, path, value);
+  });
+  return payload;
+}
+
+function updateConfigPanel(snapshot, config) {
+  if (!config) {
+    return;
+  }
+
+  const meta = config.meta || {};
+  const missingFields = Array.isArray(meta.missing_fields) ? meta.missing_fields : [];
+  const parseError = meta.config_error;
+  const ready = Boolean(meta.config_ready);
+
+  if (parseError) {
+    dom.configStatus.textContent = '配置异常';
+    setStatusChip(dom.configStatus, 'is-error');
+    dom.configHint.textContent = `${parseError} 请重新检查并保存配置。`;
+  } else if (ready) {
+    dom.configStatus.textContent = '配置已就绪';
+    setStatusChip(dom.configStatus, 'is-online');
+    dom.configHint.textContent = '配置已保存。修改后会自动重载 Telegram / TelDrive 服务参数。';
+  } else {
+    dom.configStatus.textContent = '待完善';
+    setStatusChip(dom.configStatus, 'is-warn');
+    dom.configHint.textContent = missingFields.length
+      ? `当前仍缺少：${missingFields.join('、')}。补全后保存即可自动开始连接。`
+      : '当前尚未完成配置，请填写后保存。';
+  }
+
+  if (snapshot?.config_ready === false && state.activeView === 'loginView') {
+    setActiveView('configView', { immediate: true });
+  }
+}
+
 
 function updateLoginPanel(snapshot) {
   const phase = snapshot.phase || 'starting';
@@ -232,6 +481,16 @@ function updateLoginPanel(snapshot) {
   dom.refreshQrBtn.textContent = phase === 'awaiting_qr' ? '刷新二维码' : '二维码未就绪';
   dom.passwordForm.classList.toggle('hidden', phase !== 'awaiting_password');
   dom.passwordHint.textContent = snapshot.last_error || '仅在账号开启 Telegram 两步验证时需要输入。';
+
+  if (phase === 'awaiting_config') {
+    dom.qrShell.classList.remove('has-image');
+    dom.qrImage.removeAttribute('src');
+    dom.qrPlaceholder.textContent = '等待完成网页配置';
+    dom.loginTitle.textContent = '请先在配置中心填写参数';
+    dom.loginDescription.textContent = snapshot.last_error || '当前尚未完成 Telegram 与 TelDrive 配置。请前往“参数配置”页面填写后保存。';
+    return;
+  }
+
 
   if (phase === 'awaiting_qr' && snapshot.qr_image) {
     dom.qrShell.classList.add('has-image');
@@ -282,6 +541,7 @@ function updateSummary(snapshot) {
   const phaseLabel = snapshot.phase_label || '服务启动中';
   const updatedAt = formatDateTime(snapshot.updated_at);
   const lastLogAt = formatDateTime(snapshot.last_log_at);
+  const configReady = snapshot.config_ready !== false;
   const syncValue = snapshot.sync_enabled
     ? `${snapshot.sync_interval} 秒 / 已开启`
     : '已关闭';
@@ -291,15 +551,17 @@ function updateSummary(snapshot) {
   dom.metricPhaseValue.textContent = phaseLabel;
   dom.metricPhaseMeta.textContent = `最近更新时间：${updatedAt}`;
   dom.metricSessionValue.textContent = snapshot.authorized ? '已授权' : '未授权';
-  dom.metricSessionMeta.textContent = snapshot.needs_password
-    ? '等待管理员输入两步验证密码'
-    : (snapshot.authorized ? '当前可直接执行业务同步' : '首次登录或会话失效时会显示二维码');
-  dom.metricSyncValue.textContent = snapshot.sync_enabled
-    ? `${snapshot.sync_interval} 秒轮询`
-    : '删除同步已关闭';
-  dom.metricSyncMeta.textContent = snapshot.sync_enabled
-    ? `确认周期 ${snapshot.confirm_cycles} 次`
-    : '仅保留消息监听，不执行删除同步';
+  dom.metricSessionMeta.textContent = !configReady
+    ? '请先在网页端完成配置并保存'
+    : (snapshot.needs_password
+      ? '等待管理员输入两步验证密码'
+      : (snapshot.authorized ? '当前可直接执行业务同步' : '首次登录或会话失效时会显示二维码'));
+  dom.metricSyncValue.textContent = configReady
+    ? (snapshot.sync_enabled ? `${snapshot.sync_interval} 秒轮询` : '删除同步已关闭')
+    : '等待配置完成';
+  dom.metricSyncMeta.textContent = configReady
+    ? (snapshot.sync_enabled ? `确认周期 ${snapshot.confirm_cycles} 次` : '仅保留消息监听，不执行删除同步')
+    : '请先填写 Telegram 与 TelDrive 参数';
   dom.metricLogValue.textContent = `${snapshot.log_count || 0} 条`;
   dom.metricLogMeta.textContent = snapshot.last_log_at
     ? `最近日志：${lastLogAt}`
@@ -308,13 +570,13 @@ function updateSummary(snapshot) {
   dom.logFileName.textContent = snapshot.log_file || 'runtime.log';
   dom.logCountValue.textContent = snapshot.log_count || 0;
   dom.lastLogAtValue.textContent = lastLogAt;
-  dom.summarySyncInterval.textContent = syncValue;
+  dom.summarySyncInterval.textContent = configReady ? syncValue : '等待配置';
   dom.summaryConfirmCycles.textContent = `${snapshot.confirm_cycles ?? '--'} 次`;
   dom.summaryMaxScan.textContent = `${snapshot.max_scan_messages ?? '--'} 条`;
   dom.summaryStartedAt.textContent = formatDateTime(snapshot.service_started_at);
   dom.feedbackBlock.textContent = snapshot.last_error || '当前暂无异常，系统会在此展示二维码刷新、密码校验、连接恢复等关键提示。';
 
-  dom.detailSyncValue.textContent = syncValue;
+  dom.detailSyncValue.textContent = configReady ? syncValue : '等待配置';
   dom.detailLastLogValue.textContent = lastLogAt;
   dom.detailLogFileValue.textContent = snapshot.log_file || 'runtime.log';
   dom.detailStartedAtValue.textContent = formatDateTime(snapshot.service_started_at);
@@ -353,6 +615,7 @@ function renderSnapshot() {
   }
   updateSummary(state.snapshot);
   updateLoginPanel(state.snapshot);
+  updateConfigPanel(state.snapshot, state.config);
 }
 
 function applyEvent(payload) {
@@ -401,9 +664,24 @@ async function loadBootstrap() {
   const data = await requestJson('/api/bootstrap');
   state.snapshot = data.state;
   state.logs = data.logs || [];
+  state.config = data.config || null;
+  if (state.config) {
+    populateConfigForm(state.config);
+    syncConfigSections(state.config);
+  }
   renderSnapshot();
   renderLogs();
 }
+
+
+async function reloadConfigFromServer() {
+  const data = await requestJson('/api/config');
+  state.config = data;
+  populateConfigForm(data);
+  syncConfigSections(state.config);
+  updateConfigPanel(state.snapshot, state.config);
+}
+
 
 function connectStream() {
   if (stream) {
@@ -478,9 +756,64 @@ dom.passwordForm.addEventListener('submit', async (event) => {
   }
 });
 
+dom.configForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const defaultText = dom.saveConfigBtn.textContent;
+  dom.saveConfigBtn.disabled = true;
+  dom.saveConfigBtn.textContent = '保存中...';
+  dom.configSaveNote.textContent = '正在保存配置并通知服务重载，请稍候...';
+  try {
+    const response = await requestJson('/api/config', {
+      method: 'POST',
+      body: JSON.stringify(serializeConfigForm()),
+    });
+    state.config = response.config || state.config;
+    if (state.config) {
+      populateConfigForm(state.config);
+      syncConfigSections(state.config);
+    }
+    if (response.state) {
+      state.snapshot = response.state;
+    }
+
+    renderSnapshot();
+    dom.feedbackBlock.textContent = response.requires_process_restart
+      ? '配置已保存。Telegram / TelDrive 参数已重载；若修改了 Web 地址、端口或日志缓存条数，请重启进程后完全生效。'
+      : '配置已保存并已通知后台自动重载。';
+    dom.configSaveNote.textContent = response.requires_process_restart
+      ? '配置已保存。当前运行进程的 Web 监听地址 / 端口不会立刻变化，请在合适时机重启进程。'
+      : '配置已保存。Telegram / TelDrive 服务会自动使用新参数重载。';
+  } catch (error) {
+    dom.configSaveNote.textContent = error.message;
+    dom.feedbackBlock.textContent = error.message;
+  } finally {
+    dom.saveConfigBtn.disabled = false;
+    dom.saveConfigBtn.textContent = defaultText;
+  }
+});
+
+dom.reloadConfigBtn.addEventListener('click', async () => {
+  const defaultText = dom.reloadConfigBtn.textContent;
+  dom.reloadConfigBtn.disabled = true;
+  dom.reloadConfigBtn.textContent = '读取中...';
+  try {
+    await reloadConfigFromServer();
+    dom.configSaveNote.textContent = '已重新读取当前配置文件内容。';
+    dom.feedbackBlock.textContent = '配置表单已刷新为磁盘中的最新内容。';
+  } catch (error) {
+    dom.configSaveNote.textContent = error.message;
+    dom.feedbackBlock.textContent = error.message;
+  } finally {
+    dom.reloadConfigBtn.disabled = false;
+    dom.reloadConfigBtn.textContent = defaultText;
+  }
+});
+
 (async () => {
   bindNavigation();
+  bindConfigSections();
   setActiveView(state.activeView, { immediate: true });
+
 
   try {
     await loadBootstrap();
@@ -489,4 +822,3 @@ dom.passwordForm.addEventListener('submit', async (event) => {
   }
   connectStream();
 })();
-

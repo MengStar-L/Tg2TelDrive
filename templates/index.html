@@ -36,7 +36,11 @@
         <button class="nav-icon" type="button" data-view="detailsView" data-tooltip="运行概览" aria-label="运行概览">
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 18h14M7 18V9M12 18V6M17 18v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        <button class="nav-icon" type="button" data-view="configView" data-tooltip="参数配置" aria-label="参数配置">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 15.2a1 1 0 0 0 .2 1.1l.1.1a1.8 1.8 0 0 1 0 2.5 1.8 1.8 0 0 1-2.5 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a1.8 1.8 0 0 1-1.8 1.8h-.4A1.8 1.8 0 0 1 11.4 20v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1.8 1.8 0 0 1-2.5 0 1.8 1.8 0 0 1 0-2.5l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H6a1.8 1.8 0 0 1-1.8-1.8v-.4A1.8 1.8 0 0 1 6 10.8h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1.8 1.8 0 0 1 0-2.5 1.8 1.8 0 0 1 2.5 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V6A1.8 1.8 0 0 1 12.9 4.2h.4A1.8 1.8 0 0 1 15.1 6v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1.8 1.8 0 0 1 2.5 0 1.8 1.8 0 0 1 0 2.5l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2A1.8 1.8 0 0 1 22 12.9v.4a1.8 1.8 0 0 1-1.8 1.8H20a1 1 0 0 0-.6.1Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </nav>
+
 
       <div class="sidebar-footer">
         <div class="footer-dot"></div>
@@ -253,6 +257,189 @@
             </div>
           </section>
         </article>
+
+        <article class="content-view" id="configView" data-view-panel>
+          <section class="panel glass-card config-panel">
+            <div class="panel-header">
+              <div>
+                <p class="panel-kicker">配置中心</p>
+                <h2>网页端参数配置</h2>
+              </div>
+              <span class="stream-state" id="configStatus">读取中</span>
+            </div>
+
+            <p class="panel-description" id="configHint">首次使用时可直接在此页面填写并保存配置，服务会自动尝试加载。</p>
+
+            <form class="config-form" id="configForm">
+              <details class="config-section" data-config-section="telegram" data-required-labels="Telegram API ID|Telegram API Hash|Telegram 监听频道 ID|会话文件名" open>
+                <summary class="config-section-toggle">
+                  <div class="config-section-main">
+                    <div class="config-section-head">
+                      <h3>Telegram</h3>
+                      <p>填写登录凭据、监听频道与会话文件名。</p>
+                    </div>
+                  </div>
+                  <div class="config-section-meta">
+                    <span class="config-section-tag">必填</span>
+                    <span class="config-section-arrow" aria-hidden="true"></span>
+                  </div>
+                </summary>
+                <div class="config-section-body">
+                  <div class="config-grid">
+                    <label class="config-field">
+                      <span>API ID</span>
+                      <input type="text" data-config-path="telegram.api_id" placeholder="例如 12345678">
+                    </label>
+                    <label class="config-field">
+                      <span>API Hash</span>
+                      <input type="text" data-config-path="telegram.api_hash" placeholder="输入 Telegram API Hash">
+                    </label>
+                    <label class="config-field">
+                      <span>监听频道 ID</span>
+                      <input type="text" data-config-path="telegram.channel_id" placeholder="例如 -1001234567890">
+                    </label>
+                    <label class="config-field">
+                      <span>会话文件名</span>
+                      <input type="text" data-config-path="telegram.session_name" placeholder="tel2teldrive_session">
+                    </label>
+                  </div>
+                </div>
+              </details>
+
+              <details class="config-section" data-config-section="teldrive" data-required-labels="TelDrive 地址|TelDrive Bearer Token|TelDrive 频道 ID" open>
+                <summary class="config-section-toggle">
+                  <div class="config-section-main">
+                    <div class="config-section-head">
+                      <h3>TelDrive</h3>
+                      <p>用于文件注册、同步检查与数据库精确映射。</p>
+                    </div>
+                  </div>
+                  <div class="config-section-meta">
+                    <span class="config-section-tag">必填</span>
+                    <span class="config-section-arrow" aria-hidden="true"></span>
+                  </div>
+                </summary>
+                <div class="config-section-body">
+                  <div class="config-grid">
+                    <label class="config-field config-field-wide">
+                      <span>TelDrive 地址</span>
+                      <input type="text" data-config-path="teldrive.url" placeholder="http://your-teldrive-host:7888">
+                    </label>
+                    <label class="config-field config-field-wide">
+                      <span>Bearer Token</span>
+                      <input type="password" data-config-path="teldrive.bearer_token" placeholder="输入 TelDrive Bearer Token">
+                    </label>
+                    <label class="config-field">
+                      <span>TelDrive 频道 ID</span>
+                      <input type="text" data-config-path="teldrive.channel_id" placeholder="不带 -100 前缀">
+                    </label>
+                    <label class="config-field">
+                      <span>同步轮询间隔（秒）</span>
+                      <input type="number" min="1" data-config-path="teldrive.sync_interval">
+                    </label>
+                    <label class="config-field">
+                      <span>历史扫描上限</span>
+                      <input type="number" min="1" data-config-path="teldrive.max_scan_messages">
+                    </label>
+                    <label class="config-field">
+                      <span>确认周期</span>
+                      <input type="number" min="1" data-config-path="teldrive.confirm_cycles">
+                    </label>
+                  </div>
+                  <label class="toggle-card">
+                    <input type="checkbox" data-config-path="teldrive.sync_enabled">
+                    <div>
+                      <strong>启用删除同步</strong>
+                      <span>关闭后仅保留监听与文件注册，不执行删除同步。</span>
+                    </div>
+                  </label>
+                </div>
+              </details>
+
+              <details class="config-section" data-config-section="database">
+                <summary class="config-section-toggle">
+                  <div class="config-section-main">
+                    <div class="config-section-head">
+                      <h3>TelDrive 数据库（可选）</h3>
+                      <p>仅在需要 Random Chunking 精确映射时填写。</p>
+                    </div>
+                  </div>
+                  <div class="config-section-meta">
+                    <span class="config-section-tag is-optional">可选</span>
+                    <span class="config-section-arrow" aria-hidden="true"></span>
+                  </div>
+                </summary>
+                <div class="config-section-body">
+                  <div class="config-grid">
+                    <label class="config-field">
+                      <span>DB Host</span>
+                      <input type="text" data-config-path="teldrive.db_host" placeholder="数据库地址">
+                    </label>
+                    <label class="config-field">
+                      <span>DB Port</span>
+                      <input type="number" min="1" data-config-path="teldrive.db_port">
+                    </label>
+                    <label class="config-field">
+                      <span>DB User</span>
+                      <input type="text" data-config-path="teldrive.db_user" placeholder="数据库用户名">
+                    </label>
+                    <label class="config-field">
+                      <span>DB Password</span>
+                      <input type="password" data-config-path="teldrive.db_password" placeholder="数据库密码">
+                    </label>
+                    <label class="config-field config-field-wide">
+                      <span>DB Name</span>
+                      <input type="text" data-config-path="teldrive.db_name" placeholder="postgres">
+                    </label>
+                  </div>
+                </div>
+              </details>
+
+              <details class="config-section" data-config-section="web">
+                <summary class="config-section-toggle">
+                  <div class="config-section-main">
+                    <div class="config-section-head">
+                      <h3>Web 面板</h3>
+                      <p>修改监听地址、端口或日志缓存条数后，需要重启进程才能完全生效。</p>
+                    </div>
+                  </div>
+                  <div class="config-section-meta">
+                    <span class="config-section-tag is-optional">高级</span>
+                    <span class="config-section-arrow" aria-hidden="true"></span>
+                  </div>
+                </summary>
+                <div class="config-section-body">
+                  <div class="config-grid">
+                    <label class="config-field">
+                      <span>Host</span>
+                      <input type="text" data-config-path="web.host" placeholder="0.0.0.0">
+                    </label>
+                    <label class="config-field">
+                      <span>Port</span>
+                      <input type="number" min="1" data-config-path="web.port">
+                    </label>
+                    <label class="config-field">
+                      <span>日志缓存条数</span>
+                      <input type="number" min="1" data-config-path="web.log_buffer_size">
+                    </label>
+                    <label class="config-field">
+                      <span>日志文件名</span>
+                      <input type="text" data-config-path="web.log_file" placeholder="runtime.log">
+                    </label>
+                  </div>
+                </div>
+              </details>
+
+              <div class="config-actions">
+
+                <button class="primary-button" id="saveConfigBtn" type="submit">保存配置</button>
+                <button class="action-button secondary-button" id="reloadConfigBtn" type="button">重新读取</button>
+              </div>
+              <p class="config-status-note" id="configSaveNote">保存后会自动重载 Telegram / TelDrive 配置；若修改 Web 监听地址或端口，请重启进程。</p>
+            </form>
+          </section>
+        </article>
+
       </section>
     </main>
   </div>
