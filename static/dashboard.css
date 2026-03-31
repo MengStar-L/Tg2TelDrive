@@ -138,10 +138,13 @@ img {
 
 .sidebar {
 
-  position: relative;
+  position: sticky;
+  top: 22px;
+  align-self: flex-start;
   z-index: 12;
   overflow: visible;
   width: 102px;
+  height: calc(100vh - 44px);
   flex-shrink: 0;
   border-radius: 28px;
   padding: 16px 12px;
@@ -152,6 +155,7 @@ img {
   gap: 16px;
   background: rgba(255, 255, 255, 0.9);
 }
+
 
 .brand-block {
   display: grid;
@@ -456,7 +460,12 @@ img {
   transition: height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.view-stage.skip-height-transition {
+  transition: none;
+}
+
 .content-view {
+
   grid-area: 1 / 1;
   display: none;
   opacity: 0;
@@ -491,8 +500,24 @@ img {
   z-index: 3;
 }
 
+#logsView,
+#logsView.active,
+#logsView.entering,
+#logsView.leaving {
+  transform: none;
+  filter: none;
+}
+
+#logsView.active {
+  transition: opacity 0.32s ease;
+}
+
+#logsView.leaving {
+  transition: opacity 0.26s ease;
+}
 
 .content-view.leaving {
+
   z-index: 1;
   opacity: 1;
   transform: translateY(0) scale(1);
@@ -997,6 +1022,8 @@ img {
 .log-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .log-toolbar {
@@ -1005,6 +1032,7 @@ img {
   gap: 12px;
   margin-bottom: 16px;
 }
+
 
 .toolbar-chip {
   min-width: 160px;
@@ -1028,14 +1056,16 @@ img {
 }
 
 .log-stream {
-  min-height: 560px;
-  max-height: 66vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   padding: 16px;
   border-radius: 24px;
   background: #0f172a;
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
 }
+
 
 .log-empty {
   min-height: 240px;
@@ -1146,7 +1176,13 @@ img {
     gap: 18px;
   }
 
+  .sidebar {
+    top: 18px;
+    height: calc(100vh - 36px);
+  }
+
   .login-content,
+
   .bottom-grid,
   .config-grid {
     grid-template-columns: 1fr;
@@ -1164,12 +1200,17 @@ img {
   }
 
   .sidebar {
+    position: relative;
+    top: auto;
+    align-self: stretch;
     width: 100%;
+    height: auto;
     border-radius: 28px;
     padding: 14px 18px;
     flex-direction: row;
     align-items: center;
   }
+
 
   .brand-block,
   .sidebar-nav,
@@ -1286,10 +1327,8 @@ img {
     font-size: 26px;
   }
 
-  .log-stream {
-    min-height: 420px;
-  }
 }
+
 
 @media (prefers-reduced-motion: reduce) {
   *,

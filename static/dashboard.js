@@ -36,6 +36,13 @@ const dom = {
   views: Array.from(document.querySelectorAll('[data-view-panel]')),
   viewStage: document.querySelector('.view-stage'),
   metricsGrid: document.getElementById('metricsGrid'),
+  workspace: document.querySelector('.workspace'),
+  logPanel: document.querySelector('.log-panel'),
+  logsView: document.getElementById('logsView'),
+
+
+
+
 
 
 
@@ -291,7 +298,49 @@ function updateMetricsVisibility() {
   dom.metricsGrid?.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
+function getViewportTopWithoutTransforms(element) {
+  let top = 0;
+  let current = element;
+
+  while (current) {
+    top += current.offsetTop;
+    current = current.offsetParent;
+  }
+
+  return top - window.scrollY;
+}
+
+function syncLogPanelHeight() {
+  if (!dom.logPanel || !dom.appShell) {
+    return;
+  }
+
+  const logsViewVisible = dom.logsView && (
+    dom.logsView.classList.contains('active')
+    || dom.logsView.classList.contains('entering')
+    || dom.logsView.classList.contains('leaving')
+  );
+
+  if (!logsViewVisible && state.activeView !== 'logsView') {
+    dom.logPanel.style.removeProperty('height');
+    return;
+  }
+
+  const shellStyle = window.getComputedStyle(dom.appShell);
+  const paddingBottom = parseFloat(shellStyle.paddingBottom) || 0;
+  const panelTop = getViewportTopWithoutTransforms(dom.logPanel);
+  const availableHeight = Math.floor(window.innerHeight - panelTop - paddingBottom);
+
+  if (availableHeight > 0) {
+    dom.logPanel.style.height = `${availableHeight}px`;
+    return;
+  }
+  dom.logPanel.style.removeProperty('height');
+}
+
+
 function setActiveView(viewId, options = {}) {
+
 
   const { immediate = false, animateButton = false } = options;
   const nextView = dom.views.find((view) => view.id === viewId);
@@ -319,7 +368,11 @@ function setActiveView(viewId, options = {}) {
     state.viewTransitionTimer = null;
   }
 
+  const skipHeightTransition = currentView?.id === 'logsView' || nextView.id === 'logsView';
+  dom.viewStage?.classList.toggle('skip-height-transition', skipHeightTransition);
+
   if (immediate || !currentView || currentView === nextView) {
+
     dom.viewStage?.style.removeProperty('height');
     dom.views.forEach((view) => {
       const active = view.id === viewId;
@@ -327,15 +380,20 @@ function setActiveView(viewId, options = {}) {
       view.classList.remove('entering', 'leaving', 'is-exiting');
       view.setAttribute('aria-hidden', active ? 'false' : 'true');
     });
+    syncLogPanelHeight();
     syncLogStreamPosition();
     return;
   }
+
 
 
   const currentHeight = currentView.offsetHeight;
   nextView.classList.remove('leaving', 'is-exiting');
   nextView.classList.add('entering');
   nextView.setAttribute('aria-hidden', 'false');
+
+  syncLogPanelHeight();
+
   const nextHeight = nextView.offsetHeight;
 
   currentView.classList.add('leaving');
@@ -361,11 +419,15 @@ function setActiveView(viewId, options = {}) {
     cleanupViews();
     if (dom.viewStage) {
       dom.viewStage.style.removeProperty('height');
+      dom.viewStage.classList.remove('skip-height-transition');
     }
+    syncLogPanelHeight();
     syncLogStreamPosition();
     state.viewTransitionTimer = null;
   }, 460);
 }
+
+
 
 function bindNavigation() {
   dom.navButtons.forEach((button) => {
@@ -1021,7 +1083,9 @@ dom.reloadConfigBtn.addEventListener('click', async () => {
   bindNavigation();
   bindLogStream();
   bindConfigSections();
+  window.addEventListener('resize', syncLogPanelHeight);
   setActiveView(state.activeView, { immediate: true });
+
 
   try {
     const ready = await initializeDashboard();
