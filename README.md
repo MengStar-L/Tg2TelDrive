@@ -27,7 +27,8 @@ if __name__ == "__main__":
 
 启动后会运行一个 FastAPI Web 服务，默认访问地址为：
 
-- `http://127.0.0.1:8080`
+- `http://127.0.0.1:8200`
+
 
 页面中可完成以下操作：
 
@@ -60,17 +61,20 @@ if __name__ == "__main__":
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/MengStar-L/Tg2TelDrive.git
-cd Tg2TelDrive
+git clone https://github.com/MengStar-L/Tg2TelDrive.git /opt/Tel2TelDrive
+cd /opt/Tel2TelDrive
 ```
+
 
 ### 2. 创建虚拟环境并安装依赖
 
 ```bash
+cd /opt/Tel2TelDrive
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
+
 
 
 > 如果虚拟环境里没有 `pip`，可以先执行：`python -m ensurepip --upgrade`
@@ -78,14 +82,14 @@ python -m pip install -r requirements.txt
 ### 3. 启动项目
 
 ```bash
+cd /opt/Tel2TelDrive
 source .venv/bin/activate
 python main.py
 ```
 
 启动成功后，打开浏览器访问：
 
-
-- `http://127.0.0.1:8080`
+- `http://127.0.0.1:8200`
 
 如果当前还没有 `config.toml`，服务会显示“等待网页配置”，这是正常现象。
 
@@ -98,7 +102,7 @@ python main.py
 - 填写 Telegram、TelDrive、Web 面板相关参数
 - 点击“保存配置”后，程序会自动生成或更新项目根目录下的 `config.toml`
 - Telegram / TelDrive 配置保存后会自动重载
-- 如果修改了 `web.host`、`web.port` 或 `web.log_buffer_size`，需要重启进程后完全生效
+- 如果修改了 `web.host`、`web.frontend_monitor_port` 或 `web.log_buffer_size`，需要重启进程后完全生效
 
 配置完成后，可直接在 Web 管理面板中使用手机 Telegram 扫码登录：
 
@@ -109,9 +113,9 @@ python main.py
 如果你更习惯文件方式，或需要在部署前预置参数，也可以手动创建并编辑 `config.toml`。
 
 ```bash
+cd /opt/Tel2TelDrive
 cp config.example.toml config.toml
 ```
-
 
 请根据你的环境修改 `config.toml`：
 
@@ -140,10 +144,12 @@ confirm_cycles = 3
 
 [web]
 host = "0.0.0.0"
-port = 8080
+frontend_password = ""
+frontend_monitor_port = 8200
 log_buffer_size = 400
 log_file = "runtime.log"
 ```
+
 
 
 ## 配置项说明
@@ -172,19 +178,23 @@ log_file = "runtime.log"
 ### `[web]`
 
 - `host`：Web 管理面板监听地址
-- `port`：Web 管理面板端口
+- `frontend_password`：前端访问密码，留空则不启用页面密码锁
+- `frontend_monitor_port`：Web 管理面板端口，默认 `8200`
 - `log_buffer_size`：页面中保留的最近日志条数
 - `log_file`：落盘日志文件名
+
 
 ## 使用 systemd 部署（Linux）
 
 将项目作为系统服务运行：
 
 ```bash
+cd /opt/Tel2TelDrive
 sudo cp tg2teldrive.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tg2teldrive
 ```
+
 
 查看状态：
 
@@ -205,7 +215,7 @@ journalctl -u tg2teldrive -f
 ### Linux
 
 ```bash
-cd /opt/Tg2TelDrive
+cd /opt/Tel2TelDrive
 git pull origin main
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -213,18 +223,20 @@ python main.py
 ```
 
 
+
 ### Linux systemd 服务更新
 
 如果你是用 `systemd` 运行，更新命令建议使用：
 
 ```bash
-cd /opt/Tg2TelDrive
+cd /opt/Tel2TelDrive
 git pull origin main
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 sudo systemctl restart tg2teldrive
 sudo systemctl status tg2teldrive
 ```
+
 
 ### 更新时检查配置差异
 
@@ -240,9 +252,11 @@ sudo systemctl status tg2teldrive
 ### 本地运行
 
 ```bash
+cd /opt/Tel2TelDrive
 source .venv/bin/activate
 python main.py
 ```
+
 
 
 ### 服务管理（Linux）
@@ -262,8 +276,10 @@ journalctl -u tg2teldrive -f
 说明当前虚拟环境依赖未安装完整，执行：
 
 ```bash
+cd /opt/Tel2TelDrive
 python -m pip install -r requirements.txt
 ```
+
 
 ### 2. 页面能打开，但没有二维码
 
