@@ -6,17 +6,21 @@ const state = {
   authenticated: false,
   bootstrapLoaded: false,
   activeView: 'loginView',
+  logAutoScroll: true,
   viewTransitionTimer: null,
   navAnimationTimer: null,
   configSectionTimers: new WeakMap(),
 };
 
 
+const ACTIVE_VIEW_STORAGE_KEY = 'tel2teldrive-active-view';
 const CONFIG_SECTION_STORAGE_KEY = 'tel2teldrive-config-sections';
 const CONFIG_SECTION_ANIMATION_DURATION = 340;
+const LOG_AUTO_SCROLL_THRESHOLD = 48;
 
 const CONFIG_SECTION_BODY_PADDING_BOTTOM = '20px';
 const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
 
 
 
@@ -92,7 +96,43 @@ const dom = {
 
 let stream;
 
+function readStoredActiveView() {
+  try {
+    return window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredActiveView(viewId) {
+  try {
+    window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, viewId);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function isLogStreamNearBottom() {
+  return dom.logStream.scrollTop + dom.logStream.clientHeight >= dom.logStream.scrollHeight - LOG_AUTO_SCROLL_THRESHOLD;
+}
+
+function scrollLogStreamToBottom() {
+  dom.logStream.scrollTop = dom.logStream.scrollHeight;
+}
+
+function syncLogStreamPosition() {
+  if (!state.logAutoScroll || state.activeView !== 'logsView') {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      scrollLogStreamToBottom();
+    });
+  });
+}
+
 function escapeHtml(value) {
+
   return String(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -252,6 +292,8 @@ function setActiveView(viewId, options = {}) {
 
   const currentView = dom.views.find((view) => view.id === state.activeView && view.classList.contains('active'));
   state.activeView = viewId;
+  writeStoredActiveView(viewId);
+
 
   dom.navButtons.forEach((button) => {
     const active = button.dataset.view === viewId;
@@ -275,8 +317,10 @@ function setActiveView(viewId, options = {}) {
       view.classList.remove('entering', 'leaving', 'is-exiting');
       view.setAttribute('aria-hidden', active ? 'false' : 'true');
     });
+    syncLogStreamPosition();
     return;
   }
+
 
   const currentHeight = currentView.offsetHeight;
   nextView.classList.remove('leaving', 'is-exiting');
@@ -308,6 +352,7 @@ function setActiveView(viewId, options = {}) {
     if (dom.viewStage) {
       dom.viewStage.style.removeProperty('height');
     }
+    syncLogStreamPosition();
     state.viewTransitionTimer = null;
   }, 460);
 }
@@ -319,6 +364,13 @@ function bindNavigation() {
     });
   });
 }
+
+function bindLogStream() {
+  dom.logStream.addEventListener('scroll', () => {
+    state.logAutoScroll = isLogStreamNearBottom();
+  });
+}
+
 
 function readConfigSectionState() {
   try {
@@ -951,7 +1003,13 @@ dom.reloadConfigBtn.addEventListener('click', async () => {
 });
 
 (async () => {
+  const storedActiveView = readStoredActiveView();
+  if (storedActiveView && dom.views.some((view) => view.id === storedActiveView)) {
+    state.activeView = storedActiveView;
+  }
+
   bindNavigation();
+  bindLogStream();
   bindConfigSections();
   setActiveView(state.activeView, { immediate: true });
 
@@ -964,4 +1022,5 @@ dom.reloadConfigBtn.addEventListener('click', async () => {
     dom.feedbackBlock.textContent = error.message;
   }
 })();
+
 
